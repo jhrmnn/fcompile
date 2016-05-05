@@ -204,6 +204,9 @@ def build(tasks, opts):
     total_nlines = sum(tree.line_numbers[filename] for filename in changed_files)
     compiled_nlines = 0
     print('Changed files: {0}/{1}.'.format(len(changed_files), len(tree.filenames)))
+    if opts.dry:
+        print(changed_files)
+        return
     if not changed_files:
         return
     # setup queues and workers
@@ -284,6 +287,7 @@ def build(tasks, opts):
 if __name__ == '__main__':
     parser = OptionParser()
     parser.add_option('-j', '--jobs', type='int', default=cpu_count())
+    parser.add_option('--dry', action='store_true')
     opts, _ = parser.parse_args()
     tasks = json.load(sys.stdin)
     try:
