@@ -254,6 +254,9 @@ def build(tasks, opts):
                 if modulehash != compiled_hashes.get(modulefile):
                     compiled_hashes[modulefile] = modulehash
                     for dependant in tree.dependants[module]:
+                        if dependant in compiled_hashes:
+                            del compiled_hashes[dependant]
+                    for dependant in tree.dependants[module]:
                         if dependant not in queue:
                             try:
                                 idx = next(
