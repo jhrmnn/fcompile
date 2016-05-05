@@ -294,9 +294,9 @@ def build(tasks, opts):
 
 
 if __name__ == '__main__':
-    parser = OptionParser()
-    parser.add_option('-j', '--jobs', type='int', default=cpu_count())
-    parser.add_option('--dry', action='store_true')
+    parser = OptionParser(usage='usage: fcompile.py [options] <CONFIG.json')
+    parser.add_option('-j', '--jobs', type='int', default=cpu_count(), help='number of threads')
+    parser.add_option('--dry', action='store_true', help='print changed files and exit')
     opts, _ = parser.parse_args()
     tasks = json.load(sys.stdin)
     try:
