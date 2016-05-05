@@ -270,6 +270,7 @@ def build(tasks, opts):
             )
             sys.stdout.flush()
     finally:
+        print()
         for _ in pool:
             compile_queue.put(None)
         for _ in pool:
@@ -294,6 +295,6 @@ if __name__ == '__main__':
         with timing('all'):
             build(tasks, opts)
     except KeyboardInterrupt:
-        print()
+        pass
     finally:
         timing.print()
