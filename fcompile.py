@@ -78,9 +78,11 @@ class Clock(object):
                 self.clocks[label] += self.last
                 self.stack.pop(-1)
 
-    def print(self):
+    def print(self, header=None):
         if not self.active:
             return
+        if header:
+            print(header)
         for label, clock in sorted(self.clocks.items()):
             print(label, clock)
 
@@ -152,9 +154,9 @@ class DependencyTree(object):
             self.source_modules[filename].append(module)
 
 
-# print string completed to n characters to overwrite progress line
+# clear line and print
 def pprint(s):
-    print(s + (110-len(s))*' ')
+    sys.stdout.write('\x1b[2K\r{0}\n'.format(s))
 
 
 def build(tasks, opts):
@@ -323,5 +325,4 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         pass
     finally:
-        print('Timing:')
-        timing.print()
+        timing.print(header='Timing:')
