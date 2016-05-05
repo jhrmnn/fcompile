@@ -11,6 +11,7 @@ import subprocess
 import time
 from threading import Thread
 from multiprocessing import cpu_count
+from optparse import OptionParser
 if sys.version_info[0] < 3:
     from Queue import Queue
 else:
@@ -175,7 +176,7 @@ def pprint(s):
     print(s + (80-len(s))*' ')
 
 
-def build(tasks):
+def build(tasks, opts):
     # prepare dependency tree
     tree = DependencyTree(list(tasks.keys()))
     print('Scanning files...')
@@ -212,7 +213,7 @@ def build(tasks):
     result_queue = Queue()  # shared queue of results of compilation
     pool = [
         Thread(target=worker, args=(compile_queue, result_queue))
-        for _ in range(cpu_count())
+        for _ in range(opts.jobs)
     ]
     for thread in pool:
         thread.start()
@@ -281,10 +282,13 @@ def build(tasks):
 
 
 if __name__ == '__main__':
+    parser = OptionParser()
+    parser.add_option('-j', '--jobs', type='int', default=cpu_count())
+    opts, _ = parser.parse_args()
     tasks = json.load(sys.stdin)
     try:
         with timing('all'):
-            build(tasks)
+            build(tasks, opts)
     except KeyboardInterrupt:
         print()
     finally:
