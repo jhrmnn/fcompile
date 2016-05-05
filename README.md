@@ -17,3 +17,13 @@ Fcompile reads the necessary information in a JSON format from the standard inpu
 }
 ```
 
+Fcompile provides a convenient progress line during compilation:
+
+```
+...
+Compiled DFPT_phonon/trans_hessian_to_dynamical_matrix.f90.
+Compiled DFPT_phonon/integrate_first_order_rho_p1.f90.
+Compiled my_triple_Y.f90.
+Compiled triple_Y.f90.
+Progress: 55/1013 files, 56915/497658 lines (11.4%), 30.5s/267.0s
+```
