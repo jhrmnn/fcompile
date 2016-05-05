@@ -19,6 +19,7 @@ else:
 
 
 cachename = '_fcompile_cache.json'
+is_debug = os.environ.get('DEBUG')
 
 
 def parse_modules(f):
@@ -57,7 +58,7 @@ def get_file_hash(filename, prepend=None):
 
 class Clock(object):
     def __init__(self):
-        self.active = os.environ.get('TIMING')
+        self.active = is_debug
         self.clocks = defaultdict(float)
         self.stack = []
 
@@ -268,14 +269,19 @@ def build(tasks, opts):
                             queue.insert(idx, dependant)
                             total_nlines += tree.line_numbers[dependant]
                             total_nfiles += 1
-            sys.stdout.write(
-                'Progress: {5}/{6} files, {0}/{1} lines ({2:.1f}%), {3:.1f}s/{4:.1f}s\r'.format(
+            progress_line = \
+                'Progress: {5}/{6} files, {0}/{1} lines ({2:.1f}%), {3:.1f}s/{4:.1f}s' \
+                .format(
                     compiled_nlines, total_nlines,
                     (100.*compiled_nlines)/total_nlines,
                     current_time-start_time, estimated_time,
                     compiled_nfiles, total_nfiles
                 )
-            )
+            if is_debug:
+                progress_line += ' [compile_queue: {0}]'.format(
+                    compile_queue.qsize()
+                )
+            sys.stdout.write(progress_line + '\r')
             sys.stdout.flush()
     finally:
         print()
