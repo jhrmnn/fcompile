@@ -13,9 +13,9 @@ from threading import Thread
 from multiprocessing import cpu_count
 from optparse import OptionParser
 if sys.version_info[0] < 3:
-    from Queue import Queue
+    from Queue import Queue, LifoQueue
 else:
-    from queue import Queue
+    from queue import Queue, LifoQueue
 
 
 cachename = '_fcompile_cache.json'
@@ -108,10 +108,11 @@ class DependencyTree(object):
 
     def scan(self, tasks):
         self.module_sources = defaultdict(list)
-        self.dependencies = {}
+        self.source_modules = defaultdict(list)
+        self.dependencies = defaultdict(list)
+        self.source_dependencies = defaultdict(list)
         self.dependants = defaultdict(list)
         self.source_dependants = defaultdict(list)
-        self.source_modules = defaultdict(list)
         self.line_numbers = {}
         for filename in self.filenames:
             with open(tasks[filename]['source']) as f:
@@ -134,47 +135,16 @@ class DependencyTree(object):
                 raise RuntimeError('No source for module {0}'.format(module))
         for filename, modules in self.dependencies.items():
             for module in modules:
+                modulefile = self.module_sources[module]
                 self.dependants[module].append(filename)
-                self.source_dependants[self.module_sources[module]].append(filename)
+                self.source_dependants[modulefile].append(filename)
+                self.source_dependencies[filename].append(modulefile)
         for module, filename in self.module_sources.items():
             self.source_modules[filename].append(module)
 
-    def sort(self):
-        dependant_numbers = dict(
-            (filename, len(self.source_dependants.get(filename, [])))
-            for filename in self.filenames
-        )
-        queue = [
-            filename for filename in self.filenames
-            if not self.source_dependants.get(filename)
-        ]
-        edge_counter = defaultdict(int)
-        self.filenames = []
-        while queue:
-            file_n = queue.pop()
-            self.filenames.append(file_n)
-            for module in self.dependencies[file_n]:
-                file_m = self.module_sources[module]
-                edge_counter[file_m] += 1
-                if edge_counter[file_m] == dependant_numbers[file_m]:
-                    queue.append(file_m)
-        if any(
-            edge_counter[filename] != dependant_numbers[filename]
-            for filename in self.filenames
-        ):
-            raise RuntimeError('Dependency tree has cycles')
-        self.file_ranks = dict(
-            (filename, rank) for rank, filename in enumerate(self.filenames)
-        )
-        self.file_barriers = dict(
-            (filename, max(
-                self.file_ranks[dependant] for dependant in self.source_dependants[filename]
-            ) if self.source_dependants[filename] else -1) for filename in self.filenames
-        )
-
 
 def pprint(s):
-    print(s + (80-len(s))*' ')
+    print(s + (100-len(s))*' ')
 
 
 def build(tasks, opts):
@@ -183,8 +153,6 @@ def build(tasks, opts):
     print('Scanning files...')
     with timing('scanning'):
         tree.scan(tasks)
-    with timing('sort'):
-        tree.sort()
     # get hashes of source files
     with timing('hashing'):
         source_hashes = dict((filename, get_file_hash(
@@ -214,8 +182,11 @@ def build(tasks, opts):
         return
     # setup queues and workers
     queue = list(changed_files)  # local master queue of tasks
+    blocking = dict(
+        (filename, filename in queue) for filename in tree.filenames
+    )
     running = []  # local queue of running tasks
-    compile_queue = Queue()  # shared queue of tasks to be compiled asap
+    compile_queue = LifoQueue()  # shared queue of tasks to be compiled asap
     result_queue = Queue()  # shared queue of results of compilation
     pool = [
         Thread(target=worker, args=(compile_queue, result_queue))
@@ -228,9 +199,17 @@ def build(tasks, opts):
     print('Start compiling.')
     try:
         while queue + running:
-            barrier = max(tree.file_barriers[filename] for filename in queue + running)
-            while queue and tree.file_ranks[queue[-1]] > barrier:
-                filename = queue.pop()
+            to_queue = []
+            with timing('queueing'):
+                for filename in queue:
+                    if all(
+                        not blocking[filename]
+                        for filename in tree.source_dependencies[filename]
+                    ):
+                        to_queue.append(filename)
+            to_queue.sort(key=lambda filename: len(tree.source_dependants[filename]))
+            for filename in to_queue:
+                queue.remove(filename)
                 running.append(filename)
                 compile_queue.put((
                     filename,
@@ -238,10 +217,12 @@ def build(tasks, opts):
                 ))
             if not running:
                 continue
-            filename = result_queue.get()
+            with timing('waiting'):
+                filename = result_queue.get()
             if isinstance(filename, float):
                 result_queue.put(filename)
                 break
+            blocking[filename] = False
             compiled_hashes[filename] = source_hashes[filename]
             compiled_nlines += tree.line_numbers[filename]
             compiled_nfiles += 1
@@ -259,14 +240,8 @@ def build(tasks, opts):
                             del compiled_hashes[dependant]
                     for dependant in tree.dependants[module]:
                         if dependant not in queue:
-                            try:
-                                idx = next(
-                                    queue.index(name) for name in queue
-                                    if tree.file_ranks[name] > tree.file_ranks[dependant]
-                                )
-                            except StopIteration:
-                                idx = len(queue)
-                            queue.insert(idx, dependant)
+                            queue.append(dependant)
+                            blocking[dependant] = True
                             total_nlines += tree.line_numbers[dependant]
                             total_nfiles += 1
             progress_line = \
@@ -297,6 +272,7 @@ def build(tasks, opts):
             thread.join()
         with open(cachename, 'w') as f:
             json.dump({'hashes': compiled_hashes}, f)
+    assert(not any(blocking.values()))
 
 
 if __name__ == '__main__':
