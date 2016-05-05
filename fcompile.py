@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import print_function
+from __future__ import print_function, division
 import re
 import sys
 import hashlib
@@ -57,10 +57,11 @@ def get_file_hash(filename, prepend=None):
 
 
 class Clock(object):
-    def __init__(self):
-        self.active = is_debug
+    def __init__(self, active=True):
+        self.active = active
         self.clocks = defaultdict(float)
         self.stack = []
+        self.last = None
 
     @contextmanager
     def __call__(self, name):
@@ -73,7 +74,8 @@ class Clock(object):
             yield
         finally:
             if self.active:
-                self.clocks[label] += time.time()-tm
+                self.last = time.time()-tm
+                self.clocks[label] += self.last
                 self.stack.pop(-1)
 
     def print(self):
@@ -83,7 +85,7 @@ class Clock(object):
             print(label, clock)
 
 
-timing = Clock()
+timing = Clock(active=is_debug)
 
 
 def worker(compile_queue, result_queue):
@@ -98,67 +100,76 @@ def worker(compile_queue, result_queue):
                 subprocess.check_call(args)
             except (subprocess.CalledProcessError, OSError):
                 break
-        result_queue.put(filename)
-    result_queue.put(clock.clocks['compilation'])
+        result_queue.put((filename, clock.last))
+    result_queue.put((None, clock.clocks['compilation']))
 
 
 class DependencyTree(object):
-    def __init__(self, filenames):
-        self.filenames = filenames
-
-    def scan(self, tasks):
-        self.module_sources = defaultdict(list)
+    def __init__(self, tasks):
+        # object attributes
+        self.filenames = tasks.keys()
         self.source_modules = defaultdict(list)
-        self.dependencies = defaultdict(list)
         self.source_dependencies = defaultdict(list)
-        self.dependants = defaultdict(list)
+        self.module_dependants = defaultdict(list)
         self.source_dependants = defaultdict(list)
         self.line_numbers = {}
+        # helper dictionaries
+        module_sources = defaultdict(list)
+        module_dependencies = defaultdict(list)
+        # scan files
         for filename in self.filenames:
             with open(tasks[filename]['source']) as f:
                 nlines, defined, used = parse_modules(f)
             for module in defined:
-                self.module_sources[module].append(filename)
-            self.dependencies[filename] = used
+                module_sources[module].append(filename)
+            module_dependencies[filename] = used
             self.line_numbers[filename] = nlines
-        assert(all(
-            len(filenames) == 1 for filenames in self.module_sources.values()
-        ))
-        self.module_sources = dict(
-            (module, filenames[0]) for module, filenames in self.module_sources.items()
-        )
+        # check trivial inconsistencies
+        for module in list(module_sources):
+            if len(module_sources[module]) > 1:
+                raise RuntimeError(
+                    'Module {0} defined in {1}'
+                    .format(module, module_sources[module])
+                )
+            module_sources[module] = module_sources[module][0]
         all_used_modules = set(
-            module for modules in self.dependencies.values() for module in modules
+            module for modules in module_dependencies.values() for module in modules
         )
         for module in all_used_modules:
-            if module not in self.module_sources:
-                raise RuntimeError('No source for module {0}'.format(module))
-        for filename, modules in self.dependencies.items():
+            if module not in module_sources:
+                raise RuntimeError(
+                    'No source for module {0}'
+                    .format(module)
+                )
+        # populate dictionaries
+        for filename, modules in module_dependencies.items():
             for module in modules:
-                modulefile = self.module_sources[module]
-                self.dependants[module].append(filename)
+                modulefile = module_sources[module]
+                self.module_dependants[module].append(filename)
                 self.source_dependants[modulefile].append(filename)
                 self.source_dependencies[filename].append(modulefile)
-        for module, filename in self.module_sources.items():
+        for module, filename in module_sources.items():
             self.source_modules[filename].append(module)
 
 
+# print string completed to n characters to overwrite progress line
 def pprint(s):
-    print(s + (100-len(s))*' ')
+    print(s + (110-len(s))*' ')
 
 
 def build(tasks, opts):
     # prepare dependency tree
-    tree = DependencyTree(list(tasks.keys()))
     print('Scanning files...')
     with timing('scanning'):
-        tree.scan(tasks)
-    # get hashes of source files
-    with timing('hashing'):
-        source_hashes = dict((filename, get_file_hash(
+        tree = DependencyTree(tasks)
+    # get hashes of source files & args
+    source_hashes = dict((
+        filename,
+        get_file_hash(
             tasks[filename]['source'],
             prepend=' '.join(tasks[filename]['args']).encode()
-        )) for filename in tree.filenames)
+        )
+    ) for filename in tree.filenames)
     # read compiled hashes
     if os.path.exists(cachename):
         with open(cachename) as f:
@@ -170,11 +181,14 @@ def build(tasks, opts):
         filename for filename in tree.filenames
         if source_hashes[filename] != compiled_hashes.get(filename)
     ]
-    total_nlines = sum(tree.line_numbers[filename] for filename in changed_files)
-    compiled_nlines = 0
-    total_nfiles = len(changed_files)
-    compiled_nfiles = 0
+    # file stats
+    n_all_lines = sum(tree.line_numbers[filename] for filename in changed_files)
+    n_compiled_lines = 0
+    n_all_files = len(changed_files)
+    n_compiled_files = 0
+    file_timings = {}
     print('Changed files: {0}/{1}.'.format(len(changed_files), len(tree.filenames)))
+    # check if continue
     if opts.dry:
         print(changed_files)
         return
@@ -182,10 +196,10 @@ def build(tasks, opts):
         return
     # setup queues and workers
     queue = list(changed_files)  # local master queue of tasks
-    blocking = dict(
+    blocking = dict(  # does file block
         (filename, filename in queue) for filename in tree.filenames
     )
-    running = []  # local queue of running tasks
+    submitted = []  # local queue of submitted tasks
     compile_queue = LifoQueue()  # shared queue of tasks to be compiled asap
     result_queue = Queue()  # shared queue of results of compilation
     pool = [
@@ -198,81 +212,103 @@ def build(tasks, opts):
     start_time = time.time()
     print('Start compiling.')
     try:
-        while queue + running:
-            to_queue = []
-            with timing('queueing'):
-                for filename in queue:
-                    if all(
-                        not blocking[filename]
-                        for filename in tree.source_dependencies[filename]
-                    ):
-                        to_queue.append(filename)
+        while queue + submitted:
+            to_queue = []  # files to queue for compile in this cycle
+            for filename in queue:
+                if all(
+                    not blocking[filename]
+                    for filename in tree.source_dependencies[filename]
+                ):
+                    to_queue.append(filename)
+            # compile files with most dependants asap
             to_queue.sort(key=lambda filename: len(tree.source_dependants[filename]))
+            # queue
             for filename in to_queue:
                 queue.remove(filename)
-                running.append(filename)
+                submitted.append(filename)
+                if filename in compiled_hashes:
+                    del compiled_hashes[filename]  # make sure hashes are ok
                 compile_queue.put((
                     filename,
                     tasks[filename]['args'] + [tasks[filename]['source']]
                 ))
-            if not running:
+            if not submitted:
                 continue
             with timing('waiting'):
-                filename = result_queue.get()
-            if isinstance(filename, float):
-                result_queue.put(filename)
+                filename, clock = result_queue.get()  # wait for compiled files
+            if filename is None:  # worker finished prematurely
+                result_queue.put((None, clock))
                 break
-            blocking[filename] = False
+            # process compiled file
+            blocking[filename] = False  # unblock
             compiled_hashes[filename] = source_hashes[filename]
-            compiled_nlines += tree.line_numbers[filename]
-            compiled_nfiles += 1
+            n_compiled_lines += tree.line_numbers[filename]
+            n_compiled_files += 1
             current_time = time.time()
-            estimated_time = (current_time-start_time)*total_nlines/compiled_nlines
-            pprint('Compiled {0}.'.format(filename, 80*' '))
-            running.remove(filename)
+            file_timings[filename] = clock
+            estimated_time = (current_time-start_time)*n_all_lines/n_compiled_lines
+            pprint('Compiled {0}.'.format(filename))
+            submitted.remove(filename)
+            # check if module files changed
             for module in tree.source_modules[filename]:
                 modulefile = module + '.mod'
                 modulehash = get_file_hash(modulefile)
                 if modulehash != compiled_hashes.get(modulefile):
                     compiled_hashes[modulefile] = modulehash
-                    for dependant in tree.dependants[module]:
+                    # depending files are not up-to-date anymore
+                    for dependant in tree.module_dependants[module]:
                         if dependant in compiled_hashes:
                             del compiled_hashes[dependant]
-                    for dependant in tree.dependants[module]:
+                    # queue depending files
+                    for dependant in tree.module_dependants[module]:
                         if dependant not in queue:
                             queue.append(dependant)
-                            blocking[dependant] = True
-                            total_nlines += tree.line_numbers[dependant]
-                            total_nfiles += 1
+                            blocking[dependant] = True  # block
+                            n_all_lines += tree.line_numbers[dependant]
+                            n_all_files += 1
+            # print progress line
             progress_line = \
                 'Progress: {5}/{6} files, {0}/{1} lines ({2:.1f}%), {3:.1f}s/{4:.1f}s' \
                 .format(
-                    compiled_nlines, total_nlines,
-                    (100.*compiled_nlines)/total_nlines,
+                    n_compiled_lines, n_all_lines,
+                    (100*n_compiled_lines)/n_all_lines,
                     current_time-start_time, estimated_time,
-                    compiled_nfiles, total_nfiles
+                    n_compiled_files, n_all_files
                 )
             if is_debug:
-                progress_line += ' [compile_queue: {0}]'.format(
-                    compile_queue.qsize()
-                )
+                compile_queue_size = compile_queue.qsize()
+                progress_line += \
+                    ' [compile_queue: {0}, running: {1}]' \
+                    .format(
+                        compile_queue_size, len(submitted)-compile_queue_size
+                    )
             sys.stdout.write(progress_line + '\r')
             sys.stdout.flush()
     finally:
         print()
         for _ in pool:
-            compile_queue.put(None)
+            compile_queue.put(None)  # terminate workers
         for _ in pool:
-            while True:
-                res = result_queue.get()
-                if isinstance(res, float):
+            while True:  # throw away compiled unprocessed files
+                obj, clock = result_queue.get()
+                if obj is None:
                     break
-            timing.clocks['compilation'] += res
+            timing.clocks['compilation'] += clock
         for thread in pool:
-            thread.join()
+            thread.join()  # terminate threads
+        if is_debug:
+            file_timings = sorted(file_timings.items(), key=lambda it: it[1])
+            median_compile_time = (
+                file_timings[n_compiled_files//2][1] +
+                file_timings[(n_compiled_files+1)//2][1]
+            )/2
+            print('Median time per file: {0:.3f}s'.format(median_compile_time))
+            print('Files with longest compile time:')
+            for filename, clock in file_timings[:-4:-1]:
+                print('    {0}: {1:.1f}s'.format(filename, clock))
         with open(cachename, 'w') as f:
             json.dump({'hashes': compiled_hashes}, f)
-    assert(not any(blocking.values()))
+    assert(not any(blocking.values()))  # not sure if this can happen
 
 
 if __name__ == '__main__':
@@ -287,4 +323,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         pass
     finally:
+        print('Timing:')
         timing.print()
