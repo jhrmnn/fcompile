@@ -203,6 +203,8 @@ def build(tasks, opts):
     ]
     total_nlines = sum(tree.line_numbers[filename] for filename in changed_files)
     compiled_nlines = 0
+    total_nfiles = len(changed_files)
+    compiled_nfiles = 0
     print('Changed files: {0}/{1}.'.format(len(changed_files), len(tree.filenames)))
     if opts.dry:
         print(changed_files)
@@ -241,6 +243,7 @@ def build(tasks, opts):
                 break
             compiled_hashes[filename] = source_hashes[filename]
             compiled_nlines += tree.line_numbers[filename]
+            compiled_nfiles += 1
             current_time = time.time()
             estimated_time = (current_time-start_time)*total_nlines/compiled_nlines
             pprint('Compiled {0}.'.format(filename, 80*' '))
@@ -261,11 +264,13 @@ def build(tasks, opts):
                                 idx = len(queue)
                             queue.insert(idx, dependant)
                             total_nlines += tree.line_numbers[dependant]
+                            total_nfiles += 1
             sys.stdout.write(
-                'Progress: {0}/{1} lines ({2:.1f}%), {3:.1f}s/{4:.1f}s\r'.format(
+                'Progress: {5}/{6} files, {0}/{1} lines ({2:.1f}%), {3:.1f}s/{4:.1f}s\r'.format(
                     compiled_nlines, total_nlines,
                     (100.*compiled_nlines)/total_nlines,
-                    current_time-start_time, estimated_time
+                    current_time-start_time, estimated_time,
+                    compiled_nfiles, total_nfiles
                 )
             )
             sys.stdout.flush()
