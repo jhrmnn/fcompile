@@ -220,8 +220,8 @@ def build(tasks, opts):
                     for filename in tree.source_dependencies[filename]
                 ):
                     to_queue.append(filename)
-            # compile files with most dependants asap
-            to_queue.sort(key=lambda filename: len(tree.source_dependants[filename]))
+            # compile longest files asap
+            to_queue.sort(key=lambda filename: tree.line_numbers[filename])
             # queue
             for filename in to_queue:
                 queue.remove(filename)
@@ -296,7 +296,7 @@ def build(tasks, opts):
             timing.clocks['compilation'] += clock
         for thread in pool:
             thread.join()  # terminate threads
-        if is_debug:
+        if is_debug and n_compiled_files > 0:
             file_timings = sorted(file_timings.items(), key=lambda it: it[1])
             median_compile_time = (
                 file_timings[n_compiled_files//2][1] +
