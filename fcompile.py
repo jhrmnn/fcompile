@@ -178,6 +178,7 @@ def pprint(s):
 
 
 def build(tasks, opts):
+    has_error = False
     # prepare dependency tree
     print('Scanning files...')
     with timing('scanning'):
@@ -257,6 +258,7 @@ def build(tasks, opts):
             with timing('waiting'):
                 filename, clock = result_queue.get()  # wait for compiled files
             if filename is None:  # worker finished prematurely
+                has_error = True
                 result_queue.put((None, clock))
                 break
             # process compiled file
@@ -328,7 +330,7 @@ def build(tasks, opts):
                 print('    {0}: {1:.1f}s'.format(filename, clock))
         with open(cachename, 'w') as f:
             json.dump({'hashes': compiled_hashes}, f)
-    assert(not any(blocking.values()))  # not sure if this can happen
+    return 1 if has_error else 0
 
 
 if __name__ == '__main__':
@@ -339,8 +341,8 @@ if __name__ == '__main__':
     tasks = json.load(sys.stdin)
     try:
         with timing('all'):
-            build(tasks, opts)
+            sys.exit(build(tasks, opts))
     except KeyboardInterrupt:
-        pass
+        sys.exit(1)
     finally:
         timing.print(header='Timing:')
