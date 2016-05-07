@@ -130,6 +130,18 @@ class DependencyTree(object):
                 module_sources[module].append(filename)
             module_dependencies[filename] = used
             self.line_numbers[filename] = nlines
+        # deal with special modules
+        for used in module_dependencies.values():
+            try:
+                used.remove('iso_c_binding')
+            except KeyError:
+                pass
+        if 'mpi' not in module_sources:
+            for used in module_dependencies.values():
+                try:
+                    used.remove('mpi')
+                except KeyError:
+                    pass
         # check trivial inconsistencies
         for module in list(module_sources):
             if len(module_sources[module]) > 1:
@@ -142,6 +154,8 @@ class DependencyTree(object):
             module for modules in module_dependencies.values() for module in modules
         )
         for module in all_used_modules:
+            if module == 'mpi':
+                continue
             if module not in module_sources:
                 raise RuntimeError(
                     'No source for module {0}'
