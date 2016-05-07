@@ -100,7 +100,11 @@ def worker(compile_queue, result_queue):
         with clock('compilation'):
             try:
                 subprocess.check_call(args)
-            except (subprocess.CalledProcessError, OSError):
+            except subprocess.CalledProcessError:
+                break
+            except:
+                import traceback
+                traceback.print_exc()
                 break
         result_queue.put((filename, clock.last))
     result_queue.put((None, clock.clocks['compilation']))
