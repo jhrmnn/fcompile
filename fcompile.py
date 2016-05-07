@@ -157,10 +157,7 @@ class DependencyTree(object):
             if module == 'mpi':
                 continue
             if module not in module_sources:
-                raise RuntimeError(
-                    'No source for module {0}'
-                    .format(module)
-                )
+                raise RuntimeError('No source for module {0}'.format(module))
         # populate dictionaries
         for filename, modules in module_dependencies.items():
             for module in modules:
@@ -320,10 +317,7 @@ def build(tasks, opts):
             thread.join()  # terminate threads
         if is_debug and n_compiled_files > 0:
             file_timings = sorted(file_timings.items(), key=lambda it: it[1])
-            median_compile_time = (
-                file_timings[n_compiled_files//2][1] +
-                file_timings[(n_compiled_files+1)//2][1]
-            )/2
+            median_compile_time = file_timings[n_compiled_files//2][1]
             print('Median time per file: {0:.3f}s'.format(median_compile_time))
             print('Files with longest compile time:')
             for filename, clock in file_timings[:-4:-1]:
