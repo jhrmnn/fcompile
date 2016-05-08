@@ -332,7 +332,7 @@ if __name__ == '__main__':
     parser.add_option('-j', '--jobs', type='int', default=cpu_count(), help='number of threads')
     parser.add_option('--dry', action='store_true', help='print changed files and exit')
     opts, _ = parser.parse_args()
-    tasks = json.load(sys.stdin)['fcompile']
+    tasks = json.load(sys.stdin)
     try:
         with timing('all'):
             sys.exit(build(tasks, opts))
