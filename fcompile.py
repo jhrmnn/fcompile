@@ -228,7 +228,6 @@ def build(tasks, opts):
         thread.start()
     # main build loop
     start_time = time.time()
-    print('Start compiling.')
     try:
         while queue + submitted:
             to_queue = []  # files to queue for compile in this cycle
