@@ -314,6 +314,11 @@ def build(tasks, opts):
             timing.clocks['compilation'] += clock
         for thread in pool:
             thread.join()  # terminate threads
+        if n_compiled_files > 0:
+            print(
+                'Parallelization: {0:.2f}'
+                .format(sum(file_timings.values())/(current_time-start_time))
+            )
         if is_debug and n_compiled_files > 0:
             file_timings = sorted(file_timings.items(), key=lambda it: it[1])
             median_compile_time = file_timings[n_compiled_files//2][1]
