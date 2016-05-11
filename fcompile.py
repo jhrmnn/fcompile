@@ -154,8 +154,6 @@ class DependencyTree(object):
             module for modules in module_dependencies.values() for module in modules
         )
         for module in all_used_modules:
-            if module == 'mpi':
-                continue
             if module not in module_sources:
                 raise RuntimeError('No source for module {0}'.format(module))
         # populate dictionaries
