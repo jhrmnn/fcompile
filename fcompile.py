@@ -142,6 +142,10 @@ class DependencyTree(object):
                     used.remove('mpi')
                 except KeyError:
                     pass
+        for source, task in tasks.items():
+            if 'ignored' in task:
+                for ignored in task['ignored']:
+                    module_dependencies[source].remove(ignored)
         # check trivial inconsistencies
         for module in list(module_sources):
             if len(module_sources[module]) > 1:
