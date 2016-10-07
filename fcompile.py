@@ -199,7 +199,10 @@ def build(tasks, opts):
     # read compiled hashes
     if os.path.exists(cachename):
         with open(cachename) as f:
-            compiled_hashes = json.load(f)['hashes']
+            try:
+                compiled_hashes = json.load(f)['hashes']
+            except ValueError:
+                compiled_hashes = {}
     else:
         compiled_hashes = {}
     # get changed files
