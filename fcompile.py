@@ -182,6 +182,10 @@ def build(tasks, opts):
     print('Scanning files...')
     with timing('scanning'):
         tree = DependencyTree(tasks)
+    if opts.print_deps:
+        for source, modulefiles in sorted(tree.source_dependencies.items()):
+            print('{0}: {1}'.format(source, ', '.join(modulefiles)))
+        return
     # get hashes of source files & args
     source_hashes = dict((
         filename,
@@ -337,6 +341,7 @@ if __name__ == '__main__':
     parser = OptionParser(usage='usage: fcompile.py [options] <CONFIG.json')
     parser.add_option('-j', '--jobs', type='int', default=cpu_count(), help='number of threads')
     parser.add_option('--dry', action='store_true', help='print changed files and exit')
+    parser.add_option('--print-deps', action='store_true', help='print module dependencies and exit')
     opts, _ = parser.parse_args()
     tasks = json.load(sys.stdin)
     try:
