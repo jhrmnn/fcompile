@@ -20,6 +20,7 @@ else:
 
 cachename = '_fcompile_cache.json'
 is_debug = os.environ.get('DEBUG')
+ignore_errors = False
 
 
 def parse_modules(f):
@@ -101,7 +102,8 @@ def worker(compile_queue, result_queue):
             try:
                 subprocess.check_call(args)
             except subprocess.CalledProcessError:
-                break
+                if not ignore_errors:
+                    break
             except:
                 import traceback
                 traceback.print_exc()
@@ -341,8 +343,11 @@ if __name__ == '__main__':
     parser = OptionParser(usage='usage: fcompile.py [options] <CONFIG.json')
     parser.add_option('-j', '--jobs', type='int', default=cpu_count(), help='number of threads')
     parser.add_option('--dry', action='store_true', help='print changed files and exit')
+    parser.add_option('--ignore-errors', action='store_true', help='ignore errors during compilation')
     parser.add_option('--print-deps', action='store_true', help='print module dependencies and exit')
     opts, _ = parser.parse_args()
+    if opts.ignore_errors:
+        ignore_errors = True
     tasks = json.load(sys.stdin)
     try:
         with timing('all'):
