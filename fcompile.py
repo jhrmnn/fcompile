@@ -147,7 +147,10 @@ class DependencyTree(object):
         for source, task in tasks.items():
             if 'ignored' in task:
                 for ignored in task['ignored']:
-                    module_dependencies[source].remove(ignored)
+                    try:
+                        module_dependencies[source].remove(ignored)
+                    except KeyError:
+                        pass
         # check trivial inconsistencies
         for module in list(module_sources):
             if len(module_sources[module]) > 1:
