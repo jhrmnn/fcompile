@@ -153,17 +153,19 @@ class DependencyTree(object):
         # check trivial inconsistencies
         for module in list(module_sources):
             if len(module_sources[module]) > 1:
-                raise RuntimeError(
-                    'Module {0} defined in {1}'
+                print(
+                    'error: Module {0} defined in {1}'
                     .format(module, module_sources[module])
                 )
+                sys.exit(1)
             module_sources[module] = module_sources[module][0]
         all_used_modules = set(
             module for modules in module_dependencies.values() for module in modules
         )
         for module in all_used_modules:
             if module not in module_sources:
-                raise RuntimeError('No source for module {0}'.format(module))
+                print('error: No source for module {0}'.format(module))
+                sys.exit(1)
         # populate dictionaries
         for filename, modules in module_dependencies.items():
             for module in modules:
