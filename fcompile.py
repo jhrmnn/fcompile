@@ -145,12 +145,11 @@ class DependencyTree(object):
                 except KeyError:
                     pass
         for source, task in tasks.items():
-            if 'ignored' in task:
-                for ignored in task['ignored']:
-                    try:
-                        module_dependencies[source].remove(ignored)
-                    except KeyError:
-                        pass
+            if 'includes' in task:
+                for module in list(module_dependencies[source]):
+                    for incdir in task['includes']:
+                        if os.path.exists(os.path.join(incdir, module + '.mod')):
+                            module_dependencies[source].remove(module)
         # check trivial inconsistencies
         for module in list(module_sources):
             if len(module_sources[module]) > 1:
