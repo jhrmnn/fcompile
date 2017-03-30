@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-from __future__ import print_function, division
+#!/usr/bin/env python3
 import re
 import sys
 import hashlib
@@ -7,23 +6,93 @@ import json
 import os
 from collections import defaultdict
 from contextlib import contextmanager
-import subprocess
 import time
-from threading import Thread
-from multiprocessing import cpu_count
-from optparse import OptionParser
-if sys.version_info[0] < 3:
-    from Queue import Queue, LifoQueue
-else:
-    from queue import Queue, LifoQueue
+from argparse import ArgumentParser, Namespace
+import asyncio
+from pathlib import Path
+from asyncio import Queue, LifoQueue
+from typing import Dict, Any, DefaultDict, List, Iterator, Sequence, IO  # noqa
+from typing import Set, Tuple, Union, NamedTuple, NewType, Optional  # noqa
 
+
+Hash = NewType('Hash', str)
+Filename = NewType('Filename', str)
+CompileQueue = LifoQueue[Tuple[Filename, List[str]]]
+ResultQueue = Queue[Tuple[Optional[Filename], float]]
+
+
+class Task(NamedTuple):
+    source: Path
+    args: List[str]
+    includes: List[str]
+
+
+class Clock:
+    def __init__(self, active: bool = True) -> None:
+        self.active = active
+        self.clocks: DefaultDict[str, float] = defaultdict(float)
+        self.stack: List[str] = []
+        self.last = 0.
+
+    @contextmanager
+    def __call__(self, name: str) -> Iterator[None]:
+        if self.active:
+            label = '>'.join(self.stack + [name])
+            self.clocks[label]
+            self.stack.append(name)
+            tm = time.time()
+        try:
+            yield
+        finally:
+            if self.active:
+                self.last = time.time()-tm
+                self.clocks[label] += self.last
+                self.stack.pop(-1)
+
+    def print(self, header: str = None) -> None:
+        if not self.active:
+            return
+        if header is not None:
+            print(header)
+        for label, clock in sorted(self.clocks.items()):
+            print(label, clock)
+
+
+is_debug = bool(os.environ.get('DEBUG'))
+timing = Clock(active=is_debug)
 
 cachename = '_fcompile_cache.json'
-is_debug = os.environ.get('DEBUG')
-ignore_errors = False
 
 
-def parse_modules(f):
+def get_file_hash(path: Path, args: Sequence[str] = None) -> Hash:
+    with timing('sha1'):
+        h = hashlib.new('sha1')
+        if args is not None:
+            h.update(' '.join(args).encode())
+        with path.open('rb') as f:
+            h.update(f.read())
+        return Hash(h.hexdigest())
+
+
+async def get_worker(
+        compile_queue: CompileQueue, result_queue: ResultQueue,
+        ignore_errors: bool = False) -> None:
+    clock = Clock()
+    while True:
+        task = await compile_queue.get()
+        if task is None:
+            break
+        filename, args = task
+        with clock('compilation'):
+            proc = await asyncio.create_subprocess_exec(*args)
+            await proc.wait()
+            if proc.returncode != 0 and not ignore_errors:
+                break
+        await result_queue.put((filename, clock.last))
+    await result_queue.put((None, clock.clocks['compilation']))
+
+
+def parse_modules(f: IO[str]) -> Tuple[int, Set[str], Set[str]]:
     defined = set()
     used = set()
     nlines = 0
@@ -47,86 +116,21 @@ def parse_modules(f):
     return nlines, defined, used
 
 
-def get_file_hash(filename, prepend=None):
-    with timing('sha1'):
-        h = hashlib.new('sha1')
-        if prepend is not None:
-            h.update(prepend)
-        with open(filename, 'rb') as f:
-            h.update(f.read())
-        return h.hexdigest()
-
-
-class Clock(object):
-    def __init__(self, active=True):
-        self.active = active
-        self.clocks = defaultdict(float)
-        self.stack = []
-        self.last = None
-
-    @contextmanager
-    def __call__(self, name):
-        if self.active:
-            label = '>'.join(self.stack + [name])
-            self.clocks[label]
-            self.stack.append(name)
-            tm = time.time()
-        try:
-            yield
-        finally:
-            if self.active:
-                self.last = time.time()-tm
-                self.clocks[label] += self.last
-                self.stack.pop(-1)
-
-    def print(self, header=None):
-        if not self.active:
-            return
-        if header:
-            print(header)
-        for label, clock in sorted(self.clocks.items()):
-            print(label, clock)
-
-
-timing = Clock(active=is_debug)
-
-
-def worker(compile_queue, result_queue):
-    clock = Clock()
-    while True:
-        task = compile_queue.get()
-        if task is None:
-            break
-        filename, args = task
-        with clock('compilation'):
-            try:
-                subprocess.check_call(args)
-            except subprocess.CalledProcessError:
-                if not ignore_errors:
-                    break
-            except:
-                import traceback
-                traceback.print_exc()
-                break
-        result_queue.put((filename, clock.last))
-    result_queue.put((None, clock.clocks['compilation']))
-
-
-class DependencyTree(object):
-    def __init__(self, tasks):
+class DependencyTree:
+    def __init__(self, tasks: Dict[Filename, Task]) -> None:
         # object attributes
-        self.filenames = tasks.keys()
-        self.source_modules = defaultdict(list)
-        self.source_dependencies = defaultdict(list)
-        self.module_dependants = defaultdict(list)
-        self.source_dependants = defaultdict(list)
-        self.line_numbers = {}
+        self.filenames: List[Filename] = list(tasks.keys())
+        self.source_modules: DefaultDict[Filename, List[str]] = defaultdict(list)
+        self.source_dependencies: DefaultDict[Filename, List[Filename]] = defaultdict(list)
+        self.module_dependants: DefaultDict[str, List[Filename]] = defaultdict(list)
+        self.source_dependants: DefaultDict[Filename, List[Filename]] = defaultdict(list)
+        self.line_numbers: Dict[Filename, int] = {}
         # helper dictionaries
-        module_sources = defaultdict(list)
-        module_dependencies = defaultdict(list)
+        module_sources: DefaultDict[str, List[Filename]] = defaultdict(list)
+        module_dependencies: Dict[Filename, Set[str]] = {}
         # scan files
         for filename in self.filenames:
-            with open(tasks[filename]['source']) as f:
+            with open(tasks[filename].source) as f:
                 nlines, defined, used = parse_modules(f)
             for module in defined:
                 module_sources[module].append(filename)
@@ -145,106 +149,62 @@ class DependencyTree(object):
                 except KeyError:
                     pass
         for source, task in tasks.items():
-            if 'includes' in task:
-                for module in list(module_dependencies[source]):
-                    for incdir in task['includes']:
-                        if os.path.exists(os.path.join(incdir, module + '.mod')):
-                            module_dependencies[source].remove(module)
+            if len(task.includes) == 0:
+                continue
+            for module in list(module_dependencies[source]):
+                for incdir in task.includes:
+                    if os.path.exists(os.path.join(incdir, module + '.mod')):
+                        module_dependencies[source].remove(module)
         # check trivial inconsistencies
         for module in list(module_sources):
             if len(module_sources[module]) > 1:
                 print(
-                    'error: Module {0} defined in {1}'
-                    .format(module, module_sources[module])
+                    f'error: Multiple definition of module {module} '
+                    f'in {module_sources[module]}'
                 )
                 sys.exit(1)
-            module_sources[module] = module_sources[module][0]
         all_used_modules = set(
-            module for modules in module_dependencies.values() for module in modules
+            module
+            for modules in module_dependencies.values()
+            for module in modules
         )
         for module in all_used_modules:
             if module not in module_sources:
-                print('error: No source for module {0}'.format(module))
+                print(f'error: No source for module {module}')
                 sys.exit(1)
         # populate dictionaries
         for filename, modules in module_dependencies.items():
             for module in modules:
-                modulefile = module_sources[module]
+                modulefile = module_sources[module][0]
                 self.module_dependants[module].append(filename)
                 self.source_dependants[modulefile].append(filename)
                 self.source_dependencies[filename].append(modulefile)
-        for module, filename in module_sources.items():
+        for module, (filename,) in module_sources.items():
             self.source_modules[filename].append(module)
 
 
-# clear line and print
-def pprint(s):
-    sys.stdout.write('\x1b[2K\r{0}\n'.format(s))
-
-
-def build(tasks, opts):
-    has_error = False
-    # prepare dependency tree
-    print('Scanning files...')
-    with timing('scanning'):
-        tree = DependencyTree(tasks)
-    if opts.print_deps:
-        for source, modulefiles in sorted(tree.source_dependencies.items()):
-            print('{0}: {1}'.format(source, ', '.join(modulefiles)))
-        return
-    # get hashes of source files & args
-    source_hashes = dict((
-        filename,
-        get_file_hash(
-            tasks[filename]['source'],
-            prepend=' '.join(tasks[filename]['args']).encode()
-        )
-    ) for filename in tree.filenames)
-    # read compiled hashes
-    if os.path.exists(cachename):
-        with open(cachename) as f:
-            try:
-                compiled_hashes = json.load(f)['hashes']
-            except ValueError:
-                compiled_hashes = {}
-    else:
-        compiled_hashes = {}
-    # get changed files
-    changed_files = [
-        filename for filename in tree.filenames
-        if source_hashes[filename] != compiled_hashes.get(filename)
-    ]
-    # file stats
-    n_all_lines = sum(tree.line_numbers[filename] for filename in changed_files)
-    n_compiled_lines = 0
-    n_all_files = len(changed_files)
-    n_compiled_files = 0
-    file_timings = {}
-    print('Changed files: {0}/{1}.'.format(len(changed_files), len(tree.filenames)))
-    # check if continue
-    if opts.dry:
-        print(changed_files)
-        return
-    if not changed_files:
-        return
+async def get_master(
+        tasks: Dict[Filename, Task],
+        compile_queue: CompileQueue, result_queue: ResultQueue, tree: DependencyTree,
+        changed_files: List[Filename], source_hashes: Dict[Filename, Hash],
+        compiled_hashes: Dict[Filename, Hash]) -> None:
     # setup queues and workers
     queue = list(changed_files)  # local master queue of tasks
-    blocking = dict(  # does file block
-        (filename, filename in queue) for filename in tree.filenames
+    blocking = {  # does file block
+        filename: filename in queue for filename in tree.filenames
+    }
+    submitted: List[Filename] = []  # local queue of submitted tasks
+    # file stats
+    stat = Stat(
+        sum(tree.line_numbers[filename] for filename in changed_files),
+        len(changed_files)
     )
-    submitted = []  # local queue of submitted tasks
-    compile_queue = LifoQueue()  # shared queue of tasks to be compiled asap
-    result_queue = Queue()  # shared queue of results of compilation
-    pool = [
-        Thread(target=worker, args=(compile_queue, result_queue))
-        for _ in range(opts.jobs)
-    ]
-    for thread in pool:
-        thread.start()
+    file_timings = {}
     # main build loop
     start_time = time.time()
+    filename: Optional[Filename]
     try:
-        while queue + submitted:
+        while len(queue + submitted) > 0:
             to_queue = []  # files to queue for compile in this cycle
             for filename in queue:
                 if all(
@@ -260,32 +220,31 @@ def build(tasks, opts):
                 submitted.append(filename)
                 if filename in compiled_hashes:
                     del compiled_hashes[filename]  # make sure hashes are ok
-                compile_queue.put((
+                await compile_queue.put((
                     filename,
-                    tasks[filename]['args'] + [tasks[filename]['source']]
+                    tasks[filename].args + [str(tasks[filename].source)]
                 ))
             if not submitted:
                 continue
             with timing('waiting'):
-                filename, clock = result_queue.get()  # wait for compiled files
+                filename, clock = await result_queue.get()  # wait for compiled files
             if filename is None:  # worker finished prematurely
-                has_error = True
-                result_queue.put((None, clock))
+                # has_error = True
+                await result_queue.put((None, clock))
                 break
             # process compiled file
             blocking[filename] = False  # unblock
             compiled_hashes[filename] = source_hashes[filename]
-            n_compiled_lines += tree.line_numbers[filename]
-            n_compiled_files += 1
+            stat.file_compiled(tree.line_numbers[filename])
             current_time = time.time()
             file_timings[filename] = clock
-            estimated_time = (current_time-start_time)*n_all_lines/n_compiled_lines
-            pprint('Compiled {0}.'.format(filename))
+            estimated_time = (current_time-start_time)*stat.all_lines/stat.compiled_lines
+            pprint(f'Compiled {filename}.')
             submitted.remove(filename)
             # check if module files changed
             for module in tree.source_modules[filename]:
-                modulefile = module + '.mod'
-                modulehash = get_file_hash(modulefile)
+                modulefile = Filename(module + '.mod')
+                modulehash = get_file_hash(Path(modulefile))
                 if modulehash != compiled_hashes.get(modulefile):
                     compiled_hashes[modulefile] = modulehash
                     # depending files are not up-to-date anymore
@@ -297,69 +256,150 @@ def build(tasks, opts):
                         if dependant not in queue:
                             queue.append(dependant)
                             blocking[dependant] = True  # block
-                            n_all_lines += tree.line_numbers[dependant]
-                            n_all_files += 1
+                            stat.file_compiled(tree.line_numbers[dependant])
             # print progress line
             progress_line = \
                 'Progress: {5}/{6} files, {0}/{1} lines ({2:.1f}%), {3:.1f}s/{4:.1f}s' \
                 .format(
-                    n_compiled_lines, n_all_lines,
-                    (100*n_compiled_lines)/n_all_lines,
+                    stat.compiled_lines, stat.all_lines,
+                    (100*stat.compiled_lines)/stat.all_lines,
                     current_time-start_time, estimated_time,
-                    n_compiled_files, n_all_files
+                    stat.compiled_files, stat.all_files
                 )
             if is_debug:
                 compile_queue_size = compile_queue.qsize()
-                progress_line += \
-                    ' [compile_queue: {0}, running: {1}]' \
-                    .format(
-                        compile_queue_size, len(submitted)-compile_queue_size
-                    )
+                progress_line += ' [compile_queue: {}, running: {}]'.format(
+                    compile_queue_size, len(submitted)-compile_queue_size
+                )
             sys.stdout.write(progress_line + '\r')
             sys.stdout.flush()
     finally:
-        print()
-        for _ in pool:
-            compile_queue.put(None)  # terminate workers
-        for _ in pool:
-            while True:  # throw away compiled unprocessed files
-                obj, clock = result_queue.get()
-                if obj is None:
-                    break
-            timing.clocks['compilation'] += clock
-        for thread in pool:
-            thread.join()  # terminate threads
-        if n_compiled_files > 0:
+        # print()
+        # for _ in workers:
+        #     compile_queue.put(None)  # terminate workers
+        # for _ in workers:
+        #     while True:  # throw away compiled unprocessed files
+        #         obj, clock = result_queue.get()
+        #         if obj is None:
+        #             break
+        #     timing.clocks['compilation'] += clock
+        # for thread in workers:
+        #     thread.join()  # terminate threads
+        if stat.compiled_files > 0:
             print(
                 'Parallelization: {0:.2f}'
                 .format(sum(file_timings.values())/(current_time-start_time))
             )
-        if is_debug and n_compiled_files > 0:
-            file_timings = sorted(file_timings.items(), key=lambda it: it[1])
-            median_compile_time = file_timings[n_compiled_files//2][1]
+        if is_debug and stat.compiled_files > 0:
+            timings = sorted(file_timings.items(), key=lambda it: it[1])
+            median_compile_time = timings[stat.compiled_files//2][1]
             print('Median time per file: {0:.3f}s'.format(median_compile_time))
             print('Files with longest compile time:')
-            for filename, clock in file_timings[:-4:-1]:
+            for filename, clock in timings[:-4:-1]:
                 print('    {0}: {1:.1f}s'.format(filename, clock))
         with open(cachename, 'w') as f:
             json.dump({'hashes': compiled_hashes}, f)
-    return 1 if has_error else 0
+    # return 1 if has_error else 0
+
+
+class Stat:
+    def __init__(self, all_lines: int, all_files: int) -> None:
+        self.all_lines = all_lines
+        self.compiled_lines = 0
+        self.all_files = all_files
+        self.compiled_files = 0
+
+    def file_compiled(self, lines: int) -> None:
+        self.compiled_files += 1
+        self.compiled_lines += lines
+
+
+# clear line and print
+def pprint(s: Any) -> None:
+    sys.stdout.write('\x1b[2K\r{0}\n'.format(s))
+
+
+def build(tasks: Dict[Filename, Task], opts: Namespace) -> None:
+    # prepare dependency tree
+    print('Scanning files...')
+    with timing('scanning'):
+        tree = DependencyTree(tasks)
+    if opts.print_deps:
+        for source, modulefiles in sorted(tree.source_dependencies.items()):
+            print('{0}: {1}'.format(source, ', '.join(modulefiles)))
+        return
+    # get hashes of source files & args
+    source_hashes = {
+        filename: get_file_hash(
+            tasks[filename].source,
+            args=tasks[filename].args
+        ) for filename in tree.filenames
+    }
+    # read compiled hashes
+    try:
+        with open(cachename) as f:
+            compiled_hashes = {
+                Filename(k): Hash(v) for k, v in json.load(f)['hashes'].items()
+            }
+    except (ValueError, FileNotFoundError):
+        compiled_hashes = {}
+    # get changed files
+    changed_files = [
+        filename for filename in tree.filenames
+        if source_hashes[filename] != compiled_hashes.get(filename)
+    ]
+    print('Changed files: {0}/{1}.'.format(len(changed_files), len(tree.filenames)))
+    # check if continue
+    if opts.dry:
+        print(changed_files)
+        return
+    if not changed_files:
+        return
+    # start build loop
+    compile_queue: CompileQueue = LifoQueue()  # queue of tasks to be compiled asap
+    result_queue: ResultQueue = Queue()  # queue of results of compilation
+    workers = [
+        get_worker(compile_queue, result_queue, opts.ignore_errors)
+        for _ in range(opts.jobs)
+    ]
+    master = get_master(tasks, compile_queue, result_queue, tree, changed_files, source_hashes, compiled_hashes)
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(asyncio.gather(master, *workers))
+    loop.close()
+
+
+def main(argv: List[str]) -> int:
+    parser = ArgumentParser(usage='usage: fcompile.py [options] <CONFIG.json')
+    parser.add_argument(
+        '-j', '--jobs', type=int, default=os.cpu_count(),
+        help='number of threads'
+    )
+    parser.add_argument(
+        '--dry', action='store_true',
+        help='print changed files and exit'
+    )
+    parser.add_argument(
+        '--ignore-errors', action='store_true',
+        help='ignore errors during compilation'
+    )
+    parser.add_argument(
+        '--print-deps', action='store_true',
+        help='print module dependencies and exit'
+    )
+    args = parser.parse_args(args=sys.argv[1:])
+    tasks = {
+        Filename(k): Task(Path(t['source']), t['args'], t.get('includes', []))
+        for k, t in json.load(sys.stdin).items()
+    }
+    try:
+        with timing('all'):
+            build(tasks, args)
+    except KeyboardInterrupt:
+        return 1
+    finally:
+        timing.print(header='Timing:')
+    return 0
 
 
 if __name__ == '__main__':
-    parser = OptionParser(usage='usage: fcompile.py [options] <CONFIG.json')
-    parser.add_option('-j', '--jobs', type='int', default=cpu_count(), help='number of threads')
-    parser.add_option('--dry', action='store_true', help='print changed files and exit')
-    parser.add_option('--ignore-errors', action='store_true', help='ignore errors during compilation')
-    parser.add_option('--print-deps', action='store_true', help='print module dependencies and exit')
-    opts, _ = parser.parse_args()
-    if opts.ignore_errors:
-        ignore_errors = True
-    tasks = json.load(sys.stdin)
-    try:
-        with timing('all'):
-            sys.exit(build(tasks, opts))
-    except KeyboardInterrupt:
-        sys.exit(1)
-    finally:
-        timing.print(header='Timing:')
+    sys.exit(main(sys.argv))
