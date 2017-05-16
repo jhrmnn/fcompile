@@ -74,7 +74,7 @@ def get_file_hash(path: Path, args: Sequence[str] = None) -> Hash:
         return Hash(h.hexdigest())
 
 
-async def get_worker(
+async def worker(
         compile_queue: CompileQueue, result_queue: ResultQueue,
         ignore_errors: bool = False) -> None:
     clock = Clock()
@@ -183,7 +183,7 @@ class DependencyTree:
             self.source_modules[filename].append(module)
 
 
-async def get_master(
+async def master(
         tasks: Dict[Filename, Task],
         compile_queue: CompileQueue, result_queue: ResultQueue, tree: DependencyTree,
         changed_files: List[Filename], source_hashes: Dict[Filename, Hash],
@@ -358,13 +358,15 @@ def build(tasks: Dict[Filename, Task], opts: Namespace) -> None:
     # start build loop
     compile_queue: CompileQueue = LifoQueue()  # queue of tasks to be compiled asap
     result_queue: ResultQueue = Queue()  # queue of results of compilation
-    workers = [
-        get_worker(compile_queue, result_queue, opts.ignore_errors)
+    coros = [
+        worker(compile_queue, result_queue, opts.ignore_errors)
         for _ in range(opts.jobs)
     ]
-    master = get_master(tasks, compile_queue, result_queue, tree, changed_files, source_hashes, compiled_hashes)
+    coros.append(master(
+        tasks, compile_queue, result_queue, tree, changed_files, source_hashes, compiled_hashes
+    ))
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(asyncio.gather(master, *workers))
+    loop.run_until_complete(asyncio.gather(*coros))
     loop.close()
 
 
