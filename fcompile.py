@@ -374,7 +374,7 @@ def main(argv: List[str]) -> int:
     parser = ArgumentParser(usage='usage: fcompile.py [options] <CONFIG.json')
     parser.add_argument(
         '-j', '--jobs', type=int, default=os.cpu_count(),
-        help='number of threads'
+        help=f'number of threads [default: {os.cpu_count()}]'
     )
     parser.add_argument(
         '--dry', action='store_true',
