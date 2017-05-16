@@ -11,14 +11,20 @@ from argparse import ArgumentParser, Namespace
 import asyncio
 from pathlib import Path
 from asyncio import Queue, LifoQueue
-from typing import Dict, Any, DefaultDict, List, Iterator, Sequence, IO  # noqa
-from typing import Set, Tuple, Union, NamedTuple, NewType, Optional  # noqa
+
+from typing import ( # noqa
+    Dict, Any, DefaultDict, List, Iterator, Sequence, IO, Set, Tuple, Union,
+    NamedTuple, NewType, Optional, TYPE_CHECKING
+)
 
 
 Hash = NewType('Hash', str)
 Filename = NewType('Filename', str)
-CompileQueue = LifoQueue[Tuple[Filename, List[str]]]
-ResultQueue = Queue[Tuple[Optional[Filename], float]]
+if TYPE_CHECKING:
+    CompileQueue = LifoQueue[Tuple[Filename, List[str]]]
+    ResultQueue = Queue[Tuple[Optional[Filename], float]]
+else:
+    CompileQueue, ResultQueue = None, None
 
 
 class Task(NamedTuple):
