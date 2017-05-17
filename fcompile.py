@@ -14,8 +14,10 @@ from itertools import product
 
 from typing import ( # noqa
     Dict, Any, DefaultDict, List, Iterator, Sequence, IO, Set, Tuple, Union,
-    NamedTuple, NewType, Optional, TYPE_CHECKING, cast, Generator
+    NamedTuple, NewType, Optional, TYPE_CHECKING, cast, Generator, TypeVar
 )
+
+_T = TypeVar('_T')
 
 
 import time
@@ -63,6 +65,22 @@ TaskId = NewType('TaskId', str)
 Hash = NewType('Hash', str)
 
 
+def get_priority(tree: Dict[_T, List[_T]]) -> Dict[_T, int]:
+    priority: Dict[_T, int] = {}
+
+    def getsetter(node: _T) -> int:
+        try:
+            return priority[node]
+        except KeyError:
+            pass
+        p = sum(getsetter(n) for n in tree[node]) or 1
+        priority[node] = p
+        return p
+    for node in tree:
+        getsetter(node)
+    return priority
+
+
 def get_hash(path: Path, args: Sequence[str] = None) -> Hash:
     h = hashlib.new('sha1')
     if args is not None:
@@ -79,6 +97,7 @@ class TaskTree(NamedTuple):
     mod_defs: Dict[str, TaskId]
     hashes: Dict[TaskId, Hash]
     line_nums: Dict[TaskId, int]
+    priority: Dict[TaskId, int]
 
 
 class Task(NamedTuple):
@@ -130,7 +149,14 @@ def get_tree(tasks: Dict[TaskId, Task]) -> TaskTree:
     for taskid, modules in src_deps.items():
         for module in modules:
             mod_uses[module].append(taskid)
-    return TaskTree(src_deps, src_mods, dict(mod_uses), mod_defs, hashes, line_nums)
+    priority = get_priority({
+        taskid: [t for m in mods for t in mod_uses[m]]
+        for taskid, mods in src_mods.items()
+    })
+    return TaskTree(
+        src_deps, src_mods, dict(mod_uses),
+        mod_defs, hashes, line_nums, priority
+    )
 
 
 if TYPE_CHECKING:
@@ -160,7 +186,7 @@ async def scheduler(
             if not (tree.src_deps[taskid] & blocking):
                 hashes.pop(taskid, None)  # if compilation gets interrupted
                 task_queue.put_nowait((
-                    tree.line_nums[taskid],
+                    -tree.priority[taskid],
                     taskid,
                     tasks[taskid].args + [str(tasks[taskid].source)]
                 ))
