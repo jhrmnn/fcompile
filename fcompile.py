@@ -175,6 +175,8 @@ async def scheduler(
     task_queue: TaskQueue, result_queue: ResultQueue,
     tree: TaskTree, hashes: Dict[str, Hash], changed_files: List[TaskId]
 ) -> None:
+    n_all_lines = sum(tree.line_nums[taskid] for taskid in changed_files)
+    n_lines = 0
     waiting = set(changed_files)
     scheduled: Set[TaskId] = set()
     while waiting or scheduled:
@@ -194,8 +196,12 @@ async def scheduler(
                 scheduled.add(taskid)
         taskid, retcode = await result_queue.get()
         hashes[taskid] = tree.hashes[taskid]
+        n_lines += tree.line_nums[taskid]
         pprint(f'Compiled {taskid}.')
-        sys.stdout.write(f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled\r')
+        sys.stdout.write(
+            f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, ' +
+            f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%)\r'
+        )
         sys.stdout.flush()
         scheduled.remove(taskid)
         for mod in tree.src_mods[taskid]:
@@ -245,6 +251,9 @@ def build(tasks: Dict[TaskId, Task], opts: Namespace) -> None:
         loop.run_until_complete(
             scheduler(task_queue, result_queue, tree, hashes, changed_files)
         )
+    except KeyboardInterrupt:
+        print()
+        raise
     finally:
         with open(cachefile, 'w') as f:
             json.dump({'hashes': hashes}, f)
