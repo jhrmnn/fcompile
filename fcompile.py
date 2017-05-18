@@ -309,7 +309,7 @@ def build(tasks: Dict[TaskId, Task], opts: Namespace) -> None:
         tsk.cancel()
 
 
-if __name__ == '__main__':
+def read_tasks() -> Tuple[Dict[TaskId, Task], Namespace]:
     cpu_count = os.cpu_count()
     parser = ArgumentParser(usage='usage: fcompile.py [options] <CONFIG.json')
     add = parser.add_argument
@@ -326,7 +326,11 @@ if __name__ == '__main__':
         TaskId(k): Task(Path(t['source']), t['args'], t.get('includes', []))
         for k, t in json.load(sys.stdin).items()
     }
+    return tasks, opts
+
+
+if __name__ == '__main__':
     try:
-        build(tasks, opts)
+        build(*read_tasks())
     except KeyboardInterrupt:
         sys.exit(1)
