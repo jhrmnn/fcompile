@@ -81,6 +81,53 @@ def get_priority(tree: Dict[_T, List[_T]]) -> Dict[_T, int]:
     return priority
 
 
+class GraphWithCycles(Exception):
+    pass
+
+
+def get_topsort(tree: Dict[_T, List[_T]]) -> List[_T]:
+    idxs = {node: n for n, node in enumerate(tree)}
+    outgoing = [
+        [idxs[child] for child in children] for node, children in tree.items()
+    ]
+    N = len(tree)
+    nincoming = N*[0]
+    for edges in outgoing:
+        for n in edges:
+            nincoming[n] += 1
+    L = []
+    S = [n for n in range(N) if nincoming[n] == 0]
+    while S:
+        n = S.pop()
+        L.append(n)
+        for m in outgoing[n]:
+            nincoming[m] -= 1
+            if not nincoming[m]:
+                S.append(m)
+    if sum(nincoming):
+        raise GraphWithCycles()
+    iidxs = {n: node for node, n in idxs.items()}
+    return [iidxs[n] for n in L]
+
+
+def get_subgraphs(tree: Dict[_T, List[_T]]) -> List[List[_T]]:
+    bitree = {node: list(children) for node, children in tree.items()}
+    labels: Dict[_T, int] = {}
+
+    def assign(node: _T, label: int) -> None:
+        if node in labels:
+            return
+        labels[node] = label
+        for child in bitree[node]:
+            assign(child, label)
+    for i, node in enumerate(tree):
+        assign(node, i)
+    subgraphs: DefaultDict[int, List[_T]] = defaultdict(list)
+    for node, label in labels.items():
+        subgraphs[label].append(node)
+    return list(subgraphs.values())
+
+
 def get_hash(path: Path, args: Sequence[str] = None) -> Hash:
     h = hashlib.new('sha1')
     if args is not None:
