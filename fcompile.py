@@ -219,13 +219,13 @@ def pprint(s: Any) -> None:
 
 
 async def scheduler(
-    task_queue: TaskQueue, result_queue: ResultQueue,
+    tasks: Dict[TaskId, Task], task_queue: TaskQueue, result_queue: ResultQueue,
     tree: TaskTree, hashes: Dict[str, Hash], changed_files: List[TaskId]
 ) -> None:
     n_all_lines = sum(tree.line_nums[taskid] for taskid in changed_files)
     n_lines = 0
     waiting = set(changed_files)
-    scheduled: Set[TaskId] = set()
+    scheduled: Dict[TaskId, Tuple[int, TaskId, List[str]]] = {}
     while waiting or scheduled:
         blocking = set(
             mod for mod, src in tree.mod_defs.items()
@@ -234,13 +234,14 @@ async def scheduler(
         for taskid in list(waiting):
             if not (tree.src_deps[taskid] & blocking):
                 hashes.pop(taskid, None)  # if compilation gets interrupted
-                task_queue.put_nowait((
+                task_tuple = (
                     -tree.priority[taskid],
                     taskid,
                     tasks[taskid].args + [str(tasks[taskid].source)]
-                ))
+                )
+                task_queue.put_nowait(task_tuple)
+                scheduled[taskid] = task_tuple
                 waiting.remove(taskid)
-                scheduled.add(taskid)
         taskid, retcode = await result_queue.get()
         hashes[taskid] = tree.hashes[taskid]
         n_lines += tree.line_nums[taskid]
@@ -250,7 +251,7 @@ async def scheduler(
             f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%)\r'
         )
         sys.stdout.flush()
-        scheduled.remove(taskid)
+        del scheduled[taskid]
         for mod in tree.src_mods[taskid]:
             modfile = mod + '.mod'
             modhash = get_hash(Path(modfile))
@@ -258,6 +259,12 @@ async def scheduler(
                 hashes[modfile] = modhash
                 for taskid in tree.mod_uses.get(mod, []):  # modules may be unused
                     hashes.pop(taskid, None)
+                    try:
+                        task_tuple = scheduled.pop(taskid)
+                    except KeyError:
+                        pass
+                    else:
+                        task_queue._queue.remove(task_tuple)  # type: ignore
                     waiting.add(taskid)
 
 
@@ -293,7 +300,7 @@ def build(tasks: Dict[TaskId, Task], opts: Namespace) -> None:
     ]
     try:
         loop.run_until_complete(
-            scheduler(task_queue, result_queue, tree, hashes, changed_files)
+            scheduler(tasks, task_queue, result_queue, tree, hashes, changed_files)
         )
     finally:
         print()
