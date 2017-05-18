@@ -295,10 +295,8 @@ def build(tasks: Dict[TaskId, Task], opts: Namespace) -> None:
         loop.run_until_complete(
             scheduler(task_queue, result_queue, tree, hashes, changed_files)
         )
-    except KeyboardInterrupt:
-        print()
-        raise
     finally:
+        print()
         with open(cachefile, 'w') as f:
             json.dump({'hashes': hashes}, f)
         if _clocks:
