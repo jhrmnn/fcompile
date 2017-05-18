@@ -282,10 +282,7 @@ def build(tasks: Dict[TaskId, Task], opts: Namespace) -> None:
         taskid for taskid in tasks if tree.hashes[taskid] != hashes.get(taskid)
     ]
     print(f'Changed files: {len(changed_files)}/{len(tasks)}.')
-    if opts.dry:
-        print(changed_files)
-        return
-    if not changed_files:
+    if not changed_files or opts.dry:
         return
     task_queue: TaskQueue = PriorityQueue()
     result_queue: ResultQueue = Queue()
