@@ -12,7 +12,6 @@ from argparse import ArgumentParser, Namespace
 import asyncio
 from pathlib import Path
 from asyncio import Queue, PriorityQueue
-from contextlib import contextmanager
 from itertools import product
 
 from typing import ( # noqa
@@ -21,21 +20,6 @@ from typing import ( # noqa
 )
 
 _T = TypeVar('_T')
-
-
-import time
-
-_clocks: DefaultDict[str, float] = defaultdict(float)
-
-
-@contextmanager
-def timing(label: str) -> Generator[None, None, None]:
-    tm = time.time()
-    try:
-        yield
-    finally:
-        _clocks[label] += time.time()-tm
-
 
 cachefile = '_fcompile_cache.json'
 
@@ -309,10 +293,6 @@ def build(tasks: Dict[TaskId, Task], opts: Namespace) -> None:
         print()
         with open(cachefile, 'w') as f:
             json.dump({'hashes': hashes}, f)
-        if _clocks:
-            print('Timing:')
-            for label, clock in _clocks.items():
-                print(f'  {label + ":":<15} {clock:.2f}')
     for tsk in workers:
         tsk.cancel()
 
