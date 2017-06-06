@@ -71,6 +71,24 @@ def get_priority(tree: Dict[_T, List[_T]]) -> Dict[_T, int]:
     return priority
 
 
+def get_ancestors(tree: Dict[_T, Set[_T]]) -> Dict[_T, Set[_T]]:
+    ancestors: Dict[_T, Set[_T]] = {}
+
+    def getsetter(node: _T) -> Set[_T]:
+        try:
+            return ancestors[node]
+        except KeyError:
+            pass
+        ancs = set(tree[node])
+        for n in tree[node]:
+            ancs.update(getsetter(n))
+        ancestors[node] = ancs
+        return ancs
+    for node in tree:
+        getsetter(node)
+    return ancestors
+
+
 class GraphWithCycles(Exception):
     pass
 
@@ -135,6 +153,7 @@ class TaskTree(NamedTuple):
     hashes: Dict[Filename, Hash]
     line_nums: Dict[Source, int]
     priority: Dict[Source, int]
+    ancestors: Dict[Source, Set[Source]]
 
 
 class Task(NamedTuple):
@@ -190,8 +209,12 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
         src: [t for m in mods for t in mod_uses[m]]
         for src, mods in src_mods.items()
     })
+    ancestors = get_ancestors({
+        src: set(mod_defs[m] for m in mods)
+        for src, mods in src_deps.items()
+    })
     return TaskTree(
-        src_deps, src_mods, mod_uses, mod_defs, hashes, line_nums, priority
+        src_deps, src_mods, mod_uses, mod_defs, hashes, line_nums, priority, ancestors
     )
 
 
@@ -218,13 +241,10 @@ async def scheduler(tasks: Dict[Source, Task],
     waiting = set(changed_files)
     scheduled: Dict[Source, Tuple[int, Source, Args]] = {}
     while waiting or scheduled:
-        blocking = set(
-            mod for mod, src in tree.mod_defs.items()
-            if src in waiting or src in scheduled
-        )
-        for taskid in list(waiting):
-            if not (tree.src_deps[taskid] & blocking):
-                hashes.pop(taskid, None)  # if compilation gets interrupted
+        blocking = waiting | set(scheduled)
+        for src in list(waiting):
+            if not (blocking & tree.ancestors[src]):
+                hashes.pop(src, None)  # if compilation gets interrupted
                 task_tuple = (
                     -tree.priority[src],
                     src,
@@ -250,12 +270,6 @@ async def scheduler(tasks: Dict[Source, Task],
                 hashes[modfile] = modhash
                 for taskid in tree.mod_uses.get(mod, []):  # modules may be unused
                     hashes.pop(taskid, None)
-                    try:
-                        task_tuple = scheduled.pop(taskid)
-                    except KeyError:
-                        pass
-                    else:
-                        task_queue._queue.remove(task_tuple)  # type: ignore
                     waiting.add(taskid)
 
 
