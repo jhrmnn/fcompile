@@ -16,14 +16,17 @@ from itertools import product
 
 from typing import ( # noqa
     Dict, Any, DefaultDict, List, Iterator, Sequence, IO, Set, Tuple, Union,
-    NamedTuple, NewType, Optional, TYPE_CHECKING, cast, Generator, TypeVar
+    NamedTuple, NewType, Optional, TYPE_CHECKING, cast, Generator, TypeVar,
+    Iterable
 )
 
 _T = TypeVar('_T')
 
 Module = NewType('Module', str)
 Source = NewType('Source', str)
+Filename = Union[str, Source]
 Hash = NewType('Hash', str)
+Args = NewType('Args', Tuple[str, ...])
 
 cachefile = '_fcompile_cache.json'
 
@@ -115,7 +118,7 @@ def get_subgraphs(tree: Dict[_T, List[_T]]) -> List[List[_T]]:
     return list(subgraphs.values())
 
 
-def get_hash(path: Path, args: Sequence[str] = None) -> Hash:
+def get_hash(path: Path, args: Args = None) -> Hash:
     h = hashlib.new('sha1')
     if args is not None:
         h.update(' '.join(args).encode())
@@ -129,14 +132,14 @@ class TaskTree(NamedTuple):
     src_mods: Dict[Source, List[Module]]
     mod_uses: Dict[Module, List[Source]]
     mod_defs: Dict[Module, Source]
-    hashes: Dict[Source, Hash]
+    hashes: Dict[Filename, Hash]
     line_nums: Dict[Source, int]
     priority: Dict[Source, int]
 
 
 class Task(NamedTuple):
     source: Path
-    args: List[str]
+    args: Args
     includes: List[str]
 
 
@@ -152,40 +155,40 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
     src_mods: Dict[Source, List[Module]] = {}
     mod_defs: Dict[Module, Source] = {}
     src_deps: Dict[Source, Set[Module]] = {}
-    hashes: Dict[Source, Hash] = {}
+    hashes: Dict[Filename, Hash] = {}
     line_nums: Dict[Source, int] = {}
-    for taskid, task in tasks.items():
+    for src, task in tasks.items():
         with open(task.source) as f:
             nlines, defined, used = parse_modules(f)
-        src_mods[taskid] = defined
-        src_deps[taskid] = used
-        line_nums[taskid] = nlines
-        hashes[taskid] = get_hash(task.source, task.args)
+        src_mods[src] = defined
+        src_deps[src] = used
+        line_nums[src] = nlines
+        hashes[src] = get_hash(task.source, task.args)
         for module in defined:
             if module in mod_defs:
-                raise ModuleMultipleDefined(module, [mod_defs[module], taskid])
+                raise ModuleMultipleDefined(module, [mod_defs[module], src])
             else:
-                mod_defs[module] = taskid
+                mod_defs[module] = src
     for used in src_deps.values():
         used.discard(Module('iso_c_binding'))
     if Module('mpi') not in mod_defs:
         for used in src_deps.values():
             used.discard(Module('mpi'))
-    for taskid, task in tasks.items():
+    for src, task in tasks.items():
         if task.includes:
-            for incdir, module in product(task.includes, src_deps[taskid]):  # type: ignore
+            for incdir, module in product(task.includes, src_deps[src]):  # type: ignore
                 if os.path.exists(os.path.join(incdir, module + '.mod')):
-                    src_deps[taskid].remove(module)
+                    src_deps[src].remove(module)
     for mod in set(mod for mods in src_deps.values() for mod in mods):
         if mod not in mod_defs:
             raise ModuleNotDefined(mod)
     mod_uses: DefaultDict[Module, List[Source]] = defaultdict(list)
-    for taskid, modules in src_deps.items():
+    for src, modules in src_deps.items():
         for module in modules:
-            mod_uses[module].append(taskid)
+            mod_uses[module].append(src)
     priority = get_priority({
-        taskid: [t for m in mods for t in mod_uses[m]]
-        for taskid, mods in src_mods.items()
+        src: [t for m in mods for t in mod_uses[m]]
+        for src, mods in src_mods.items()
     })
     return TaskTree(
         src_deps, src_mods, mod_uses, mod_defs, hashes, line_nums, priority
@@ -193,7 +196,7 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
 
 
 if TYPE_CHECKING:
-    TaskQueue = PriorityQueue[Tuple[int, Source, List[str]]]
+    TaskQueue = PriorityQueue[Tuple[int, Source, Args]]
     ResultQueue = Queue[Tuple[Source, int]]
 else:
     TaskQueue, ResultQueue = None, None
@@ -204,18 +207,16 @@ def pprint(s: Any) -> None:
     sys.stdout.write('\x1b[2K\r{0}\n'.format(s))
 
 
-async def scheduler(
-    tasks: Dict[Source, Task],
-    task_queue: TaskQueue,
-    result_queue: ResultQueue,
-    tree: TaskTree,
-    hashes: Dict[str, Hash],
-    changed_files: List[Source]
-) -> None:
-    n_all_lines = sum(tree.line_nums[taskid] for taskid in changed_files)
+async def scheduler(tasks: Dict[Source, Task],
+                    task_queue: TaskQueue,
+                    result_queue: ResultQueue,
+                    tree: TaskTree,
+                    hashes: Dict[Filename, Hash],
+                    changed_files: List[Source]) -> None:
+    n_all_lines = sum(tree.line_nums[src] for src in changed_files)
     n_lines = 0
     waiting = set(changed_files)
-    scheduled: Dict[Source, Tuple[int, Source, List[str]]] = {}
+    scheduled: Dict[Source, Tuple[int, Source, Args]] = {}
     while waiting or scheduled:
         blocking = set(
             mod for mod, src in tree.mod_defs.items()
@@ -225,24 +226,24 @@ async def scheduler(
             if not (tree.src_deps[taskid] & blocking):
                 hashes.pop(taskid, None)  # if compilation gets interrupted
                 task_tuple = (
-                    -tree.priority[taskid],
-                    taskid,
-                    tasks[taskid].args + [str(tasks[taskid].source)]
+                    -tree.priority[src],
+                    src,
+                    Args(tasks[src].args + (str(tasks[src].source),))
                 )
                 task_queue.put_nowait(task_tuple)
-                scheduled[taskid] = task_tuple
-                waiting.remove(taskid)
-        taskid, retcode = await result_queue.get()
-        hashes[taskid] = tree.hashes[taskid]
-        n_lines += tree.line_nums[taskid]
-        pprint(f'Compiled {taskid}.')
+                scheduled[src] = task_tuple
+                waiting.remove(src)
+        src, retcode = await result_queue.get()
+        hashes[src] = tree.hashes[src]
+        n_lines += tree.line_nums[src]
+        pprint(f'Compiled {src}.')
         sys.stdout.write(
             f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, ' +
             f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%)\r'
         )
         sys.stdout.flush()
-        del scheduled[taskid]
-        for mod in tree.src_mods[taskid]:
+        del scheduled[src]
+        for mod in tree.src_mods[src]:
             modfile = mod + '.mod'
             modhash = get_hash(Path(modfile))
             if modhash != hashes.get(modfile):
@@ -274,7 +275,7 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
     except (ValueError, FileNotFoundError):
         hashes = {}
     changed_files = [
-        taskid for taskid in tasks if tree.hashes[taskid] != hashes.get(taskid)
+        src for src in tasks if tree.hashes[src] != hashes.get(src)
     ]
     print(f'Changed files: {len(changed_files)}/{len(tasks)}.')
     if not changed_files or opts.dry:
@@ -312,7 +313,7 @@ def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
         help='print module dependencies and exit')
     opts = parser.parse_args()
     tasks = {
-        Source(k): Task(Path(t['source']), t['args'], t.get('includes', []))
+        Source(k): Task(Path(t['source']), Args(tuple(t['args'])), t.get('includes', []))
         for k, t in json.load(sys.stdin).items()
     }
     return tasks, opts
