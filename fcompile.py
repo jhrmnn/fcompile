@@ -282,7 +282,9 @@ async def scheduler(tasks: Dict[Source, Task],
                 hashes[modfile] = modhash
                 for src in tree.mod_uses.get(mod, []):  # modules may be unused
                     hashes.pop(src, None)
-                    waiting.add(src)
+                    if src not in waiting:
+                        n_all_lines += tree.line_nums[src]
+                        waiting.add(src)
 
 
 async def worker(task_queue: TaskQueue, result_queue: ResultQueue) -> None:
