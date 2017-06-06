@@ -341,10 +341,11 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
 
 
 def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
-    cpu_count = os.cpu_count()
+    cpu_count = os.cpu_count()//2 or 1  # type: ignore
     parser = ArgumentParser(usage='usage: fcompile.py [options] <CONFIG.json')
     arg = parser.add_argument
     arg('-j', '--jobs', type=int, default=cpu_count,
+        help=f'number of threads [default: {cpu_count}]')
     arg('--dry', action='store_true',
         help='print changed files and exit')
     arg('--ignore-errors', action='store_true',
