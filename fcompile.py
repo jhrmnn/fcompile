@@ -259,6 +259,8 @@ async def scheduler(tasks: Dict[Source, Task],
                 scheduled[src] = task_tuple
                 waiting.remove(src)
         src, retcode, clock = await result_queue.get()
+        if retcode != 0:
+            break
         clocks.append((src, clock, tree.line_nums[src]))
         hashes[src] = tree.hashes[src]
         n_lines += tree.line_nums[src]
