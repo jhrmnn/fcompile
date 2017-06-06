@@ -262,13 +262,13 @@ async def scheduler(tasks: Dict[Source, Task],
         clocks.append((src, clock, tree.line_nums[src]))
         hashes[src] = tree.hashes[src]
         n_lines += tree.line_nums[src]
+        del scheduled[src]
         pprint(f'Compiled {src}.')
         sys.stdout.write(
             f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, ' +
             f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%)\r'
         )
         sys.stdout.flush()
-        del scheduled[src]
         for mod in tree.src_mods[src]:
             modfile = mod + '.mod'
             modhash = get_hash(Path(modfile))
