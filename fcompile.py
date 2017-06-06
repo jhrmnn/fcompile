@@ -235,6 +235,10 @@ def pprint(s: Any) -> None:
 clocks: List[Tuple[Source, float, int]] = []
 
 
+class CompilationError(Exception):
+    pass
+
+
 async def scheduler(tasks: Dict[Source, Task],
                     task_queue: TaskQueue,
                     result_queue: ResultQueue,
@@ -260,7 +264,7 @@ async def scheduler(tasks: Dict[Source, Task],
                 waiting.remove(src)
         src, retcode, clock = await result_queue.get()
         if retcode != 0:
-            break
+            raise CompilationError(src, retcode)
         clocks.append((src, clock, tree.line_nums[src]))
         hashes[src] = tree.hashes[src]
         n_lines += tree.line_nums[src]
@@ -315,8 +319,15 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
         loop.run_until_complete(
             scheduler(tasks, task_queue, result_queue, tree, hashes, changed_files)
         )
-    finally:
+    except CompilationError as e:
+        print(f'Compilation of {e.args[0]} returned {e.args[1]}.')
+        sys.exit(1)
+    except:
         print()
+        raise
+    else:
+        print()
+    finally:
         with open(cachefile, 'w') as f:
             json.dump({'hashes': hashes}, f)
         if DEBUG:
@@ -325,8 +336,8 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
             print(f'{"File":<{maxnamelen+2}}    {"Time [s]":<6}  {"Lines":<6}')
             for file, clock, nlines in rows:
                 print(f'  {file:<{maxnamelen+2}}  {clock:>6.2f}  {nlines:>6}')
-    for tsk in workers:
-        tsk.cancel()
+        for tsk in workers:
+            tsk.cancel()
 
 
 def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
