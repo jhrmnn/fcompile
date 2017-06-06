@@ -188,8 +188,7 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
         for taskid, mods in src_mods.items()
     })
     return TaskTree(
-        src_deps, src_mods, dict(mod_uses),
-        mod_defs, hashes, line_nums, priority
+        src_deps, src_mods, mod_uses, mod_defs, hashes, line_nums, priority
     )
 
 
@@ -206,8 +205,12 @@ def pprint(s: Any) -> None:
 
 
 async def scheduler(
-    tasks: Dict[Source, Task], task_queue: TaskQueue, result_queue: ResultQueue,
-    tree: TaskTree, hashes: Dict[str, Hash], changed_files: List[Source]
+    tasks: Dict[Source, Task],
+    task_queue: TaskQueue,
+    result_queue: ResultQueue,
+    tree: TaskTree,
+    hashes: Dict[str, Hash],
+    changed_files: List[Source]
 ) -> None:
     n_all_lines = sum(tree.line_nums[taskid] for taskid in changed_files)
     n_lines = 0
