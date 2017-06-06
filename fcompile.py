@@ -268,9 +268,9 @@ async def scheduler(tasks: Dict[Source, Task],
             modhash = get_hash(Path(modfile))
             if modhash != hashes.get(modfile):
                 hashes[modfile] = modhash
-                for taskid in tree.mod_uses.get(mod, []):  # modules may be unused
-                    hashes.pop(taskid, None)
-                    waiting.add(taskid)
+                for src in tree.mod_uses.get(mod, []):  # modules may be unused
+                    hashes.pop(src, None)
+                    waiting.add(src)
 
 
 async def worker(task_queue: TaskQueue, result_queue: ResultQueue) -> None:
@@ -316,14 +316,13 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
 def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
     cpu_count = os.cpu_count()
     parser = ArgumentParser(usage='usage: fcompile.py [options] <CONFIG.json')
-    add = parser.add_argument
-    add('-j', '--jobs', type=int, default=cpu_count,
-        help=f'number of threads [default: {cpu_count}]')
-    add('--dry', action='store_true',
+    arg = parser.add_argument
+    arg('-j', '--jobs', type=int, default=cpu_count,
+    arg('--dry', action='store_true',
         help='print changed files and exit')
-    add('--ignore-errors', action='store_true',
+    arg('--ignore-errors', action='store_true',
         help='ignore errors during compilation')
-    add('--print-deps', action='store_true',
+    arg('--print-deps', action='store_true',
         help='print module dependencies and exit')
     opts = parser.parse_args()
     tasks = {
