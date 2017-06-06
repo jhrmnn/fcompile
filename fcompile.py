@@ -21,10 +21,14 @@ from typing import ( # noqa
 
 _T = TypeVar('_T')
 
+Module = NewType('Module', str)
+Source = NewType('Source', str)
+Hash = NewType('Hash', str)
+
 cachefile = '_fcompile_cache.json'
 
 
-def parse_modules(f: IO[str]) -> Tuple[int, List[str], Set[str]]:
+def parse_modules(f: IO[str]) -> Tuple[int, List[Module], Set[Module]]:
     defined = []
     used = set()
     nlines = 0
@@ -40,16 +44,12 @@ def parse_modules(f: IO[str]) -> Tuple[int, List[str], Set[str]]:
             module = re.match(r'module\s+(\w+)\s*', line, re.IGNORECASE).group(1)
             module = module.lower()
             if module != 'procedure':
-                defined.append(module)
+                defined.append(Module(module))
         elif word == 'use':
             module = re.match(r'use\s+(\w+)\s*', line, re.IGNORECASE).group(1)
-            used.add(module.lower())
+            used.add(Module(module.lower()))
     used.difference_update(defined)
     return nlines, defined, used
-
-
-TaskId = NewType('TaskId', str)
-Hash = NewType('Hash', str)
 
 
 def get_priority(tree: Dict[_T, List[_T]]) -> Dict[_T, int]:
@@ -125,13 +125,13 @@ def get_hash(path: Path, args: Sequence[str] = None) -> Hash:
 
 
 class TaskTree(NamedTuple):
-    src_deps: Dict[TaskId, Set[str]]
-    src_mods: Dict[TaskId, List[str]]
-    mod_uses: Dict[str, List[TaskId]]
-    mod_defs: Dict[str, TaskId]
-    hashes: Dict[TaskId, Hash]
-    line_nums: Dict[TaskId, int]
-    priority: Dict[TaskId, int]
+    src_deps: Dict[Source, Set[Module]]
+    src_mods: Dict[Source, List[Module]]
+    mod_uses: Dict[Module, List[Source]]
+    mod_defs: Dict[Module, Source]
+    hashes: Dict[Source, Hash]
+    line_nums: Dict[Source, int]
+    priority: Dict[Source, int]
 
 
 class Task(NamedTuple):
@@ -148,12 +148,12 @@ class ModuleNotDefined(Exception):
     pass
 
 
-def get_tree(tasks: Dict[TaskId, Task]) -> TaskTree:
-    src_mods: Dict[TaskId, List[str]] = {}
-    mod_defs: Dict[str, TaskId] = {}
-    src_deps: Dict[TaskId, Set[str]] = {}
-    hashes: Dict[TaskId, Hash] = {}
-    line_nums: Dict[TaskId, int] = {}
+def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
+    src_mods: Dict[Source, List[Module]] = {}
+    mod_defs: Dict[Module, Source] = {}
+    src_deps: Dict[Source, Set[Module]] = {}
+    hashes: Dict[Source, Hash] = {}
+    line_nums: Dict[Source, int] = {}
     for taskid, task in tasks.items():
         with open(task.source) as f:
             nlines, defined, used = parse_modules(f)
@@ -167,19 +167,19 @@ def get_tree(tasks: Dict[TaskId, Task]) -> TaskTree:
             else:
                 mod_defs[module] = taskid
     for used in src_deps.values():
-        used.discard('iso_c_binding')
-    if 'mpi' not in mod_defs:
+        used.discard(Module('iso_c_binding'))
+    if Module('mpi') not in mod_defs:
         for used in src_deps.values():
-            used.discard('mpi')
+            used.discard(Module('mpi'))
     for taskid, task in tasks.items():
         if task.includes:
-            for incdir, module in product(task.includes, src_deps[taskid]):
+            for incdir, module in product(task.includes, src_deps[taskid]):  # type: ignore
                 if os.path.exists(os.path.join(incdir, module + '.mod')):
                     src_deps[taskid].remove(module)
     for mod in set(mod for mods in src_deps.values() for mod in mods):
         if mod not in mod_defs:
             raise ModuleNotDefined(mod)
-    mod_uses: DefaultDict[str, List[TaskId]] = defaultdict(list)
+    mod_uses: DefaultDict[Module, List[Source]] = defaultdict(list)
     for taskid, modules in src_deps.items():
         for module in modules:
             mod_uses[module].append(taskid)
@@ -194,8 +194,8 @@ def get_tree(tasks: Dict[TaskId, Task]) -> TaskTree:
 
 
 if TYPE_CHECKING:
-    TaskQueue = PriorityQueue[Tuple[int, TaskId, List[str]]]
-    ResultQueue = Queue[Tuple[TaskId, int]]
+    TaskQueue = PriorityQueue[Tuple[int, Source, List[str]]]
+    ResultQueue = Queue[Tuple[Source, int]]
 else:
     TaskQueue, ResultQueue = None, None
 
@@ -206,13 +206,13 @@ def pprint(s: Any) -> None:
 
 
 async def scheduler(
-    tasks: Dict[TaskId, Task], task_queue: TaskQueue, result_queue: ResultQueue,
-    tree: TaskTree, hashes: Dict[str, Hash], changed_files: List[TaskId]
+    tasks: Dict[Source, Task], task_queue: TaskQueue, result_queue: ResultQueue,
+    tree: TaskTree, hashes: Dict[str, Hash], changed_files: List[Source]
 ) -> None:
     n_all_lines = sum(tree.line_nums[taskid] for taskid in changed_files)
     n_lines = 0
     waiting = set(changed_files)
-    scheduled: Dict[TaskId, Tuple[int, TaskId, List[str]]] = {}
+    scheduled: Dict[Source, Tuple[int, Source, List[str]]] = {}
     while waiting or scheduled:
         blocking = set(
             mod for mod, src in tree.mod_defs.items()
@@ -262,14 +262,12 @@ async def worker(task_queue: TaskQueue, result_queue: ResultQueue) -> None:
         result_queue.put_nowait((taskname, retcode))
 
 
-def build(tasks: Dict[TaskId, Task], opts: Namespace) -> None:
+def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
     print('Scanning files...')
     tree = get_tree(tasks)
     try:
         with open(cachefile) as f:
-            hashes = {
-                k: Hash(v) for k, v in json.load(f)['hashes'].items()
-            }
+            hashes = {k: Hash(v) for k, v in json.load(f)['hashes'].items()}
     except (ValueError, FileNotFoundError):
         hashes = {}
     changed_files = [
@@ -297,7 +295,7 @@ def build(tasks: Dict[TaskId, Task], opts: Namespace) -> None:
         tsk.cancel()
 
 
-def read_tasks() -> Tuple[Dict[TaskId, Task], Namespace]:
+def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
     cpu_count = os.cpu_count()
     parser = ArgumentParser(usage='usage: fcompile.py [options] <CONFIG.json')
     add = parser.add_argument
@@ -311,7 +309,7 @@ def read_tasks() -> Tuple[Dict[TaskId, Task], Namespace]:
         help='print module dependencies and exit')
     opts = parser.parse_args()
     tasks = {
-        TaskId(k): Task(Path(t['source']), t['args'], t.get('includes', []))
+        Source(k): Task(Path(t['source']), t['args'], t.get('includes', []))
         for k, t in json.load(sys.stdin).items()
     }
     return tasks, opts
