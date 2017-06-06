@@ -12,7 +12,8 @@ from argparse import ArgumentParser, Namespace
 import asyncio
 from pathlib import Path
 from asyncio import Queue, PriorityQueue
-from itertools import product
+from itertools import product, islice
+import time
 
 from typing import ( # noqa
     Dict, Any, DefaultDict, List, Iterator, Sequence, IO, Set, Tuple, Union,
@@ -28,6 +29,7 @@ Filename = Union[str, Source]
 Hash = NewType('Hash', str)
 Args = NewType('Args', Tuple[str, ...])
 
+DEBUG = os.environ.get('DEBUG')
 cachefile = '_fcompile_cache.json'
 
 
@@ -220,7 +222,7 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
 
 if TYPE_CHECKING:
     TaskQueue = PriorityQueue[Tuple[int, Source, Args]]
-    ResultQueue = Queue[Tuple[Source, int]]
+    ResultQueue = Queue[Tuple[Source, int, float]]
 else:
     TaskQueue, ResultQueue = None, None
 
@@ -228,6 +230,9 @@ else:
 # clear line and print
 def pprint(s: Any) -> None:
     sys.stdout.write('\x1b[2K\r{0}\n'.format(s))
+
+
+clocks: List[Tuple[Source, float, int]] = []
 
 
 async def scheduler(tasks: Dict[Source, Task],
@@ -253,7 +258,8 @@ async def scheduler(tasks: Dict[Source, Task],
                 task_queue.put_nowait(task_tuple)
                 scheduled[src] = task_tuple
                 waiting.remove(src)
-        src, retcode = await result_queue.get()
+        src, retcode, clock = await result_queue.get()
+        clocks.append((src, clock, tree.line_nums[src]))
         hashes[src] = tree.hashes[src]
         n_lines += tree.line_nums[src]
         pprint(f'Compiled {src}.')
@@ -276,8 +282,10 @@ async def scheduler(tasks: Dict[Source, Task],
 async def worker(task_queue: TaskQueue, result_queue: ResultQueue) -> None:
     while True:
         _, taskname, args = await task_queue.get()
-        retcode = await(await asyncio.create_subprocess_exec(*args)).wait()
-        result_queue.put_nowait((taskname, retcode))
+        proc = await asyncio.create_subprocess_exec(*args)
+        now = time.time()
+        retcode = await proc.wait()
+        result_queue.put_nowait((taskname, retcode, time.time()-now))
 
 
 def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
@@ -309,6 +317,12 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
         print()
         with open(cachefile, 'w') as f:
             json.dump({'hashes': hashes}, f)
+        if DEBUG:
+            rows = list(islice(sorted(clocks, key=lambda x: -x[1]), 20))
+            maxnamelen = max(len(r[0]) for r in rows)
+            print(f'{"File":<{maxnamelen+2}}    {"Time [s]":<6}  {"Lines":<6}')
+            for file, clock, nlines in rows:
+                print(f'  {file:<{maxnamelen+2}}  {clock:>6.2f}  {nlines:>6}')
     for tsk in workers:
         tsk.cancel()
 
