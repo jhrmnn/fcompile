@@ -35,6 +35,9 @@ cachefile = '_fcompile_cache.json'
 
 
 def parse_modules(f: IO[str]) -> Tuple[int, List[Module], Set[Module]]:
+    """Parses a Fortran source file and returns the number of lines, a list of
+    modules defined in the file, and a set of modules that the file imports.
+    """
     defined = []
     used = set()
     nlines = 0
@@ -58,6 +61,9 @@ def parse_modules(f: IO[str]) -> Tuple[int, List[Module], Set[Module]]:
 
 
 def get_priority(tree: Dict[_T, List[_T]]) -> Dict[_T, int]:
+    """Calculates node priorities in a one-directional graph such that a
+    priority of a node is equal to 1 plus the sum of priorities of its children.
+    """
     priority: Dict[_T, int] = {}
 
     def getsetter(node: _T) -> int:
@@ -74,6 +80,9 @@ def get_priority(tree: Dict[_T, List[_T]]) -> Dict[_T, int]:
 
 
 def get_ancestors(tree: Dict[_T, Set[_T]]) -> Dict[_T, Set[_T]]:
+    """Obtains all ancestors (in all generations) for each node in a
+    one-directional graph.
+    """
     ancestors: Dict[_T, Set[_T]] = {}
 
     def getsetter(node: _T) -> Set[_T]:
@@ -92,6 +101,7 @@ def get_ancestors(tree: Dict[_T, Set[_T]]) -> Dict[_T, Set[_T]]:
 
 
 def get_hash(path: Path, tpl: Tuple = None) -> Hash:
+    """Calculates SHA-1 hash of a file. The hash optionally includes a tuple."""
     h = hashlib.new('sha1')
     if tpl is not None:
         h.update(repr(tpl).encode())
@@ -101,6 +111,15 @@ def get_hash(path: Path, tpl: Tuple = None) -> Hash:
 
 
 class TaskTree(NamedTuple):
+    """A dependency tree of Fortran source files.
+
+    - src_mods: Maps source files to modules defined in them.
+    - mod_uses: Maps modules to source files that import them.
+    - hashes: Maps source and module files to their hashes.
+    - line_nums: Maps source files to numbers of line.
+    - priority: Maps source files to priorities.
+    - ancestors: Maps source files to sets of ancestors.
+    """
     src_mods: Dict[Source, List[Module]]
     mod_uses: Dict[Module, List[Source]]
     hashes: Dict[Filename, Hash]
@@ -110,6 +129,13 @@ class TaskTree(NamedTuple):
 
 
 class Task(NamedTuple):
+    """A single compilation task.
+
+    - source: Path to the Fortran source file.
+    - args: Arguments to run to compile the task. The source file will be
+        appended. Example: ('gfortran', '-c', '-o', 'build/a.o')
+    - includes: A list of include directories (without '-I').
+    """
     source: Path
     args: Args
     includes: List[str]
@@ -124,6 +150,7 @@ class ModuleNotDefined(Exception):
 
 
 def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
+    """Returns a task tree given a dict of tasks."""
     src_mods: Dict[Source, List[Module]] = {}
     mod_defs: Dict[Module, Source] = {}
     src_deps: Dict[Source, Set[Module]] = {}
@@ -178,8 +205,8 @@ else:
     TaskQueue, ResultQueue = None, None
 
 
-# clear line and print
 def pprint(s: Any) -> None:
+    """Clears a line and prints."""
     sys.stdout.write('\x1b[2K\r{0}\n'.format(s))
 
 
@@ -187,6 +214,7 @@ clocks: List[Tuple[Source, float, int]] = []
 
 
 def print_clocks() -> None:
+    """Prints clock information."""
     rows = list(islice(sorted(clocks, key=lambda x: -x[1]), 20))
     maxnamelen = max(len(r[0]) for r in rows)
     print(f'{"File":<{maxnamelen+2}}    {"Time [s]":<6}  {"Lines":<6}')
@@ -204,6 +232,7 @@ async def scheduler(tasks: Dict[Source, Task],
                     tree: TaskTree,
                     hashes: Dict[Filename, Hash],
                     changed_files: List[Source]) -> None:
+    """Coroutine that schedules tasks and handles compiled tasks."""
     start = time.time()
     n_all_lines = sum(tree.line_nums[src] for src in changed_files)
     n_lines = 0
@@ -251,6 +280,7 @@ async def scheduler(tasks: Dict[Source, Task],
 
 
 async def worker(task_queue: TaskQueue, result_queue: ResultQueue) -> None:
+    """Coroutine that compiles tasks."""
     while True:
         _, taskname, args = await task_queue.get()
         proc = await asyncio.create_subprocess_exec(*args)
@@ -260,6 +290,7 @@ async def worker(task_queue: TaskQueue, result_queue: ResultQueue) -> None:
 
 
 def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
+    """Main entry point. Accepts a dict of tasks and options."""
     print('Scanning files...')
     tree = get_tree(tasks)
     try:
@@ -300,6 +331,7 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
 
 
 def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
+    """Handles the command-line interface and reads input."""
     cpu_count = os.cpu_count()//2 or 1  # type: ignore
     parser = ArgumentParser(usage='usage: fcompile.py [options] <CONFIG.json')
     arg = parser.add_argument
