@@ -344,17 +344,6 @@ def build(tasks: Dict[Source, Task], dry: bool = False, njobs: int = 1) -> None:
             print_clocks()
 
 
-def parse_cli() -> Dict[str, Any]:
-    """Handle the command-line interface."""
-    cpu_count = os.cpu_count()//2 or 1  # type: ignore
-    parser = ArgumentParser(usage='fcompile.py [options] <CONFIG.json')
-    arg = parser.add_argument
-    arg('-j', '--jobs', type=int, default=cpu_count, dest='njobs',
-        help=f'number of parallel workers [default: {cpu_count}]')
-    arg('--dry', action='store_true', help='scan files and exit')
-    return vars(parser.parse_args())
-
-
 def read_tasks(f: IO[str] = sys.stdin) -> Dict[Source, Task]:
     """Read tasks from a file."""
     return {
@@ -365,6 +354,17 @@ def read_tasks(f: IO[str] = sys.stdin) -> Dict[Source, Task]:
         )
         for k, t in json.load(f).items()
     }
+
+
+def parse_cli() -> Dict[str, Any]:
+    """Handle the command-line interface."""
+    cpu_count = os.cpu_count()//2 or 1  # type: ignore
+    parser = ArgumentParser(usage='fcompile.py [options] <CONFIG.json')
+    arg = parser.add_argument
+    arg('-j', '--jobs', type=int, default=cpu_count, dest='njobs',
+        help=f'number of parallel workers [default: {cpu_count}]')
+    arg('--dry', action='store_true', help='scan files and exit')
+    return vars(parser.parse_args())
 
 
 if __name__ == '__main__':
