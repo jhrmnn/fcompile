@@ -91,53 +91,6 @@ def get_ancestors(tree: Dict[_T, Set[_T]]) -> Dict[_T, Set[_T]]:
     return ancestors
 
 
-class GraphWithCycles(Exception):
-    pass
-
-
-def get_topsort(tree: Dict[_T, List[_T]]) -> List[_T]:
-    idxs = {node: n for n, node in enumerate(tree)}
-    outgoing = [
-        [idxs[child] for child in children] for node, children in tree.items()
-    ]
-    N = len(tree)
-    nincoming = N*[0]
-    for edges in outgoing:
-        for n in edges:
-            nincoming[n] += 1
-    L = []
-    S = [n for n in range(N) if nincoming[n] == 0]
-    while S:
-        n = S.pop()
-        L.append(n)
-        for m in outgoing[n]:
-            nincoming[m] -= 1
-            if not nincoming[m]:
-                S.append(m)
-    if sum(nincoming):
-        raise GraphWithCycles()
-    iidxs = {n: node for node, n in idxs.items()}
-    return [iidxs[n] for n in L]
-
-
-def get_subgraphs(tree: Dict[_T, List[_T]]) -> List[List[_T]]:
-    bitree = {node: list(children) for node, children in tree.items()}
-    labels: Dict[_T, int] = {}
-
-    def assign(node: _T, label: int) -> None:
-        if node in labels:
-            return
-        labels[node] = label
-        for child in bitree[node]:
-            assign(child, label)
-    for i, node in enumerate(tree):
-        assign(node, i)
-    subgraphs: DefaultDict[int, List[_T]] = defaultdict(list)
-    for node, label in labels.items():
-        subgraphs[label].append(node)
-    return list(subgraphs.values())
-
-
 def get_hash(path: Path, args: Args = None) -> Hash:
     h = hashlib.new('sha1')
     if args is not None:
@@ -216,7 +169,8 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
         for src, mods in src_deps.items()
     })
     return TaskTree(
-        src_deps, src_mods, mod_uses, mod_defs, hashes, line_nums, priority, ancestors
+        src_deps, src_mods, mod_uses, mod_defs,
+        hashes, line_nums, priority, ancestors
     )
 
 
@@ -271,7 +225,7 @@ async def scheduler(tasks: Dict[Source, Task],
         del scheduled[src]
         pprint(f'Compiled {src}.')
         sys.stdout.write(
-            f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, ' +
+            f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, '
             f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%)\r'
         )
         sys.stdout.flush()
@@ -347,17 +301,17 @@ def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
     cpu_count = os.cpu_count()//2 or 1  # type: ignore
     parser = ArgumentParser(usage='usage: fcompile.py [options] <CONFIG.json')
     arg = parser.add_argument
-    arg('-j', '--jobs', type=int, default=cpu_count,
-        help=f'number of threads [default: {cpu_count}]')
-    arg('--dry', action='store_true',
-        help='print changed files and exit')
-    arg('--ignore-errors', action='store_true',
-        help='ignore errors during compilation')
-    arg('--print-deps', action='store_true',
-        help='print module dependencies and exit')
+    arg('-j', '--jobs', type=int, default=cpu_count, help=f'number of threads [default: {cpu_count}]')
+    arg('--dry', action='store_true', help='print changed files and exit')
+    arg('--ignore-errors', action='store_true', help='ignore errors during compilation')
+    arg('--print-deps', action='store_true', help='print module dependencies and exit')
     opts = parser.parse_args()
     tasks = {
-        Source(k): Task(Path(t['source']), Args(tuple(t['args'])), t.get('includes', []))
+        Source(k): Task(
+            Path(t['source']),
+            Args(tuple(t['args'])),
+            t.get('includes', [])
+        )
         for k, t in json.load(sys.stdin).items()
     }
     return tasks, opts
