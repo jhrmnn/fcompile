@@ -182,6 +182,7 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
             used.discard(Module('mpi'))
     for src, task in tasks.items():
         if task.includes:
+            incdir: Path
             for incdir, module in product(task.includes, src_deps[src]):  # type: ignore
                 if (incdir/(module + '.mod')).exists():
                     src_deps[src].remove(module)
@@ -308,7 +309,7 @@ def build(tasks: Dict[Source, Task], dry: bool = False, njobs: int = 1) -> None:
     tree = get_tree(tasks)
     try:
         with open(cachefile) as f:
-            hashes = {k: Hash(v) for k, v in json.load(f)['hashes'].items()}
+            hashes: Dict[Filename, Hash] = json.load(f)['hashes']
     except (ValueError, FileNotFoundError):
         hashes = {}
     changed_files = [src for src in tasks if tree.hashes[src] != hashes.get(src)]
