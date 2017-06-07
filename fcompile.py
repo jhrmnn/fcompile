@@ -134,11 +134,11 @@ class Task(NamedTuple):
     - source: Path to the Fortran source file.
     - args: Arguments to run to compile the task. The source file will be
         appended. Example: ('gfortran', '-c', '-o', 'build/a.o')
-    - includes: A list of include directories (without '-I').
+    - includes: A list of Paths of include directories.
     """
     source: Path
     args: Args
-    includes: List[str]
+    includes: List[Path]
 
 
 class ModuleMultipleDefined(Exception):
@@ -176,7 +176,7 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
     for src, task in tasks.items():
         if task.includes:
             for incdir, module in product(task.includes, src_deps[src]):  # type: ignore
-                if os.path.exists(os.path.join(incdir, module + '.mod')):
+                if (incdir/(module + '.mod')).exists():
                     src_deps[src].remove(module)
     for mod in set(mod for mods in src_deps.values() for mod in mods):
         if mod not in mod_defs:
@@ -342,7 +342,9 @@ def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
     opts = parser.parse_args()
     tasks = {
         Source(k): Task(
-            Path(t['source']), Args(tuple(t['args'])), t.get('includes', [])
+            Path(t['source']),
+            Args(tuple(t['args'])),
+            [Path(inc) for inc in t.get('includes', [])]
         )
         for k, t in json.load(sys.stdin).items()
     }
