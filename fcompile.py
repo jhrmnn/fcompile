@@ -65,7 +65,7 @@ def get_priority(tree: Dict[_T, List[_T]]) -> Dict[_T, int]:
             return priority[node]
         except KeyError:
             pass
-        p = sum(getsetter(n) for n in tree[node]) or 1
+        p = 1 + sum(getsetter(n) for n in tree[node])
         priority[node] = p
         return p
     for node in tree:
