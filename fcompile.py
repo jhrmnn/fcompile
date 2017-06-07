@@ -216,7 +216,9 @@ def print_clocks() -> None:
 
 
 class CompilationError(Exception):
-    pass
+    def __init__(self, source: Source, retcode: int) -> None:
+        self.source = source
+        self.retcode = retcode
 
 
 if TYPE_CHECKING:
@@ -314,7 +316,7 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
             scheduler(tasks, task_queue, result_queue, tree, hashes, changed_files)
         )
     except CompilationError as e:
-        print(f'error: Compilation of {e.args[0]} returned {e.args[1]}.')
+        print(f'error: Compilation of {e.source} returned {e.retcode}.')
         raise
     except:
         print()
