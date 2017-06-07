@@ -314,8 +314,8 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
             scheduler(tasks, task_queue, result_queue, tree, hashes, changed_files)
         )
     except CompilationError as e:
-        print(f'Compilation of {e.args[0]} returned {e.args[1]}.')
-        sys.exit(1)
+        print(f'error: Compilation of {e.args[0]} returned {e.args[1]}.')
+        raise
     except:
         print()
         raise
@@ -354,5 +354,5 @@ def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
 if __name__ == '__main__':
     try:
         build(*read_tasks())
-    except KeyboardInterrupt:
-        sys.exit(1)
+    except (KeyboardInterrupt, CompilationError):
+        raise SystemExit(1)
