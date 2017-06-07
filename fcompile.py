@@ -66,16 +66,16 @@ def get_priority(tree: Dict[_T, List[_T]]) -> Dict[_T, int]:
     """
     priority: Dict[_T, int] = {}
 
-    def getsetter(node: _T) -> int:
+    def getset(node: _T) -> int:
         try:
             return priority[node]
         except KeyError:
             pass
-        p = 1 + sum(getsetter(n) for n in tree[node])
+        p = 1 + sum(getset(n) for n in tree[node])
         priority[node] = p
         return p
     for node in tree:
-        getsetter(node)
+        getset(node)
     return priority
 
 
@@ -85,18 +85,18 @@ def get_ancestors(tree: Dict[_T, Set[_T]]) -> Dict[_T, Set[_T]]:
     """
     ancestors: Dict[_T, Set[_T]] = {}
 
-    def getsetter(node: _T) -> Set[_T]:
+    def getset(node: _T) -> Set[_T]:
         try:
             return ancestors[node]
         except KeyError:
             pass
         ancs = set(tree[node])
         for n in tree[node]:
-            ancs.update(getsetter(n))
+            ancs.update(getset(n))
         ancestors[node] = ancs
         return ancs
     for node in tree:
-        getsetter(node)
+        getset(node)
     return ancestors
 
 
