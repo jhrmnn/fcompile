@@ -198,13 +198,6 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
     )
 
 
-if TYPE_CHECKING:
-    TaskQueue = PriorityQueue[Tuple[int, Source, Args]]
-    ResultQueue = Queue[Tuple[Source, int, float]]
-else:
-    TaskQueue, ResultQueue = None, None
-
-
 def pprint(s: Any) -> None:
     """Clears a line and prints."""
     sys.stdout.write('\x1b[2K\r{0}\n'.format(s))
@@ -224,6 +217,13 @@ def print_clocks() -> None:
 
 class CompilationError(Exception):
     pass
+
+
+if TYPE_CHECKING:
+    TaskQueue = PriorityQueue[Tuple[int, Source, Args]]
+    ResultQueue = Queue[Tuple[Source, int, float]]
+else:
+    TaskQueue, ResultQueue = None, None
 
 
 async def scheduler(tasks: Dict[Source, Task],
