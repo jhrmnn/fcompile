@@ -207,7 +207,7 @@ async def scheduler(tasks: Dict[Source, Task],
     n_lines = 0
     waiting = set(changed_files)
     scheduled: Set[Source] = set()
-    while waiting or scheduled:
+    while True:
         blocking = waiting | scheduled
         for src in list(waiting):
             if not (blocking & tree.ancestors[src]):
@@ -219,6 +219,13 @@ async def scheduler(tasks: Dict[Source, Task],
                 ))
                 scheduled.add(src)
                 waiting.remove(src)
+        sys.stdout.write(
+            f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, '
+            f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%)\r'
+        )
+        sys.stdout.flush()
+        if not blocking:
+            break
         src, retcode, clock = await result_queue.get()
         if retcode != 0:
             raise CompilationError(src, retcode)
@@ -227,11 +234,6 @@ async def scheduler(tasks: Dict[Source, Task],
         n_lines += tree.line_nums[src]
         scheduled.remove(src)
         pprint(f'Compiled {src}.')
-        sys.stdout.write(
-            f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, '
-            f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%)\r'
-        )
-        sys.stdout.flush()
         for mod in tree.src_mods[src]:
             modfile = mod + '.mod'
             modhash = get_hash(Path(modfile))
