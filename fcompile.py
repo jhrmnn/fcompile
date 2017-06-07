@@ -100,10 +100,8 @@ def get_hash(path: Path, args: Args = None) -> Hash:
 
 
 class TaskTree(NamedTuple):
-    src_deps: Dict[Source, Set[Module]]
     src_mods: Dict[Source, List[Module]]
     mod_uses: Dict[Module, List[Source]]
-    mod_defs: Dict[Module, Source]
     hashes: Dict[Filename, Hash]
     line_nums: Dict[Source, int]
     priority: Dict[Source, int]
@@ -168,8 +166,7 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
         for src, mods in src_deps.items()
     })
     return TaskTree(
-        src_deps, src_mods, mod_uses, mod_defs,
-        hashes, line_nums, priority, ancestors
+        src_mods, mod_uses, hashes, line_nums, priority, ancestors
     )
 
 
