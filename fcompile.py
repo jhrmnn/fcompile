@@ -9,7 +9,7 @@ import json
 import os
 import time
 from collections import defaultdict
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 from pathlib import Path
 from itertools import product, islice
 from math import nan
@@ -291,7 +291,7 @@ async def worker(task_queue: TaskQueue, result_queue: ResultQueue) -> None:
         result_queue.put_nowait((taskname, retcode, time.time()-now))
 
 
-def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
+def build(tasks: Dict[Source, Task], dry: bool = False, njobs: int = 1) -> None:
     """Main entry point. Accepts a dict of tasks and options."""
     print('Scanning files...')
     tree = get_tree(tasks)
@@ -302,14 +302,14 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
         hashes = {}
     changed_files = [src for src in tasks if tree.hashes[src] != hashes.get(src)]
     print(f'Changed files: {len(changed_files)}/{len(tasks)}.')
-    if not changed_files or opts.dry:
+    if not changed_files or dry:
         return
     task_queue: TaskQueue = PriorityQueue()
     result_queue: ResultQueue = Queue()
     loop = asyncio.get_event_loop()
     workers = [
         loop.create_task(worker(task_queue, result_queue))
-        for _ in range(opts.jobs)
+        for _ in range(njobs)
     ]
     try:
         loop.run_until_complete(
@@ -332,27 +332,31 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
             print_clocks()
 
 
-def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
-    """Handles the command-line interface and reads input."""
+def parse_cli() -> Dict[str, Any]:
+    """Handles the command-line interface."""
     cpu_count = os.cpu_count()//2 or 1  # type: ignore
     parser = ArgumentParser(usage='fcompile.py [options] <CONFIG.json')
     arg = parser.add_argument
-    arg('-j', '--jobs', type=int, default=cpu_count, help=f'number of parallel workers [default: {cpu_count}]')
+    arg('-j', '--jobs', type=int, default=cpu_count, dest='njobs',
+        help=f'number of parallel workers [default: {cpu_count}]')
     arg('--dry', action='store_true', help='scan files and exit')
-    opts = parser.parse_args()
-    tasks = {
+    return vars(parser.parse_args())
+
+
+def read_tasks(f: IO[str] = sys.stdin) -> Dict[Source, Task]:
+    """Reads tasks from a file."""
+    return {
         Source(k): Task(
             Path(t['source']),
             Args(tuple(t['args'])),
             [Path(inc) for inc in t.get('includes', [])]
         )
-        for k, t in json.load(sys.stdin).items()
+        for k, t in json.load(f).items()
     }
-    return tasks, opts
 
 
 if __name__ == '__main__':
     try:
-        build(*read_tasks())
+        build(read_tasks(), **parse_cli())
     except (KeyboardInterrupt, CompilationError):
         raise SystemExit(1)
