@@ -4,6 +4,17 @@ Fcompile is a specialized build tool written in Python 3.6 with `asyncio`, that 
 
 A high degree of parallelization is achieved by prioritizing compilation of modules with many dependants.
 
+## Use
+
+```
+usage: fcompile.py [options] <CONFIG.json
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -j JOBS, --jobs JOBS  number of parallel workers [default: ...]
+  --dry                 scan files and exit
+```
+
 Fcompile reads the build specification in a JSON format from the standard input:
 
 ```json
@@ -20,7 +31,7 @@ Fcompile reads the build specification in a JSON format from the standard input:
 }
 ```
 
-Fcompile provides a convenient progress line during compilation:
+Fcompile shows a progress line during compilation:
 
 ```
 ...
