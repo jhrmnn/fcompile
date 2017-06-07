@@ -7,13 +7,13 @@ import sys
 import hashlib
 import json
 import os
+import time
 from collections import defaultdict
 from argparse import ArgumentParser, Namespace
-import asyncio
 from pathlib import Path
-from asyncio import Queue, PriorityQueue
 from itertools import product, islice
-import time
+import asyncio
+from asyncio import Queue, PriorityQueue
 
 from typing import ( # noqa
     Dict, Any, DefaultDict, List, Iterator, Sequence, IO, Set, Tuple, Union,
@@ -44,15 +44,14 @@ def parse_modules(f: IO[str]) -> Tuple[int, List[Module], Set[Module]]:
             continue
         if line[0] == '!':
             continue
-        word = line[:line.find(' ')].lower()
+        word = line.split(' ', 1)[0].lower()
         if word == 'module':
-            module = re.match(r'module\s+(\w+)\s*', line, re.IGNORECASE).group(1)
-            module = module.lower()
+            module = re.match(r'module\s+(\w+)\s*', line, re.IGNORECASE).group(1).lower()
             if module != 'procedure':
                 defined.append(Module(module))
         elif word == 'use':
-            module = re.match(r'use\s+(\w+)\s*', line, re.IGNORECASE).group(1)
-            used.add(Module(module.lower()))
+            module = re.match(r'use\s+(\w+)\s*', line, re.IGNORECASE).group(1).lower()
+            used.add(Module(module))
     used.difference_update(defined)
     return nlines, defined, used
 
@@ -189,6 +188,14 @@ def pprint(s: Any) -> None:
 clocks: List[Tuple[Source, float, int]] = []
 
 
+def print_clocks() -> None:
+    rows = list(islice(sorted(clocks, key=lambda x: -x[1]), 20))
+    maxnamelen = max(len(r[0]) for r in rows)
+    print(f'{"File":<{maxnamelen+2}}    {"Time [s]":<6}  {"Lines":<6}')
+    for file, clock, nlines in rows:
+        print(f'  {file:<{maxnamelen+2}}  {clock:>6.2f}  {nlines:>6}')
+
+
 class CompilationError(Exception):
     pass
 
@@ -258,9 +265,7 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
             hashes = {k: Hash(v) for k, v in json.load(f)['hashes'].items()}
     except (ValueError, FileNotFoundError):
         hashes = {}
-    changed_files = [
-        src for src in tasks if tree.hashes[src] != hashes.get(src)
-    ]
+    changed_files = [src for src in tasks if tree.hashes[src] != hashes.get(src)]
     print(f'Changed files: {len(changed_files)}/{len(tasks)}.')
     if not changed_files or opts.dry:
         return
@@ -287,13 +292,9 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
         with open(cachefile, 'w') as f:
             json.dump({'hashes': hashes}, f)
         if DEBUG:
-            rows = list(islice(sorted(clocks, key=lambda x: -x[1]), 20))
-            maxnamelen = max(len(r[0]) for r in rows)
-            print(f'{"File":<{maxnamelen+2}}    {"Time [s]":<6}  {"Lines":<6}')
-            for file, clock, nlines in rows:
-                print(f'  {file:<{maxnamelen+2}}  {clock:>6.2f}  {nlines:>6}')
         for tsk in workers:
             tsk.cancel()
+            print_clocks()
 
 
 def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
@@ -307,9 +308,7 @@ def read_tasks() -> Tuple[Dict[Source, Task], Namespace]:
     opts = parser.parse_args()
     tasks = {
         Source(k): Task(
-            Path(t['source']),
-            Args(tuple(t['args'])),
-            t.get('includes', [])
+            Path(t['source']), Args(tuple(t['args'])), t.get('includes', [])
         )
         for k, t in json.load(sys.stdin).items()
     }
