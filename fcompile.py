@@ -91,10 +91,10 @@ def get_ancestors(tree: Dict[_T, Set[_T]]) -> Dict[_T, Set[_T]]:
     return ancestors
 
 
-def get_hash(path: Path, args: Args = None) -> Hash:
+def get_hash(path: Path, tpl: Tuple = None) -> Hash:
     h = hashlib.new('sha1')
-    if args is not None:
-        h.update(' '.join(args).encode())
+    if tpl is not None:
+        h.update(repr(tpl).encode())
     with path.open('rb') as f:
         h.update(f.read())
     return Hash(h.hexdigest())
