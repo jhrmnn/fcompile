@@ -157,7 +157,7 @@ def get_tree(tasks: Dict[Source, Task]) -> TaskTree:
     hashes: Dict[Filename, Hash] = {}
     line_nums: Dict[Source, int] = {}
     for src, task in tasks.items():
-        with open(task.source) as f:
+        with task.source.open() as f:
             nlines, defined, used = parse_modules(f)
         src_mods[src] = defined
         src_deps[src] = used
