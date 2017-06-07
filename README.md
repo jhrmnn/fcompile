@@ -24,5 +24,5 @@ Fcompile provides a convenient progress line during compilation:
 Compiled SCGW/scgw_allocations.f90.
 Compiled inner_product.f90.
 Compiled python_interface_stub.f90.
- Progress: 196 waiting, 951 scheduled, 37877/601740 lines (6.3%)
+ Progress: 90 waiting, 1036 scheduled, 223126/735391 lines (30.3%), ETA: 255.5 s
 ```

@@ -12,6 +12,7 @@ from collections import defaultdict
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from itertools import product, islice
+from math import nan
 import asyncio
 from asyncio import Queue, PriorityQueue
 
@@ -203,6 +204,7 @@ async def scheduler(tasks: Dict[Source, Task],
                     tree: TaskTree,
                     hashes: Dict[Filename, Hash],
                     changed_files: List[Source]) -> None:
+    start = time.time()
     n_all_lines = sum(tree.line_nums[src] for src in changed_files)
     n_lines = 0
     waiting = set(changed_files)
@@ -221,7 +223,8 @@ async def scheduler(tasks: Dict[Source, Task],
                 waiting.remove(src)
         sys.stdout.write(
             f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, '
-            f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%)\r'
+            f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%), '
+            f'ETA: {(time.time()-start)*n_all_lines/(n_lines or nan):.1f} s\r'
         )
         sys.stdout.flush()
         if not blocking:
