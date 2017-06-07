@@ -4,15 +4,18 @@ Fcompile is a specialized build tool written in Python 3.6 with `asyncio`, that 
 
 A high degree of parallelization is achieved by prioritizing compilation of modules with many dependants.
 
-Fcompile reads the build specification in a JSON format from the standard input. See an example configuration for details:
+Fcompile reads the build specification in a JSON format from the standard input:
 
 ```json
 {
   "a.f90": {
-  	"source": "src/a.f90", "args": ["gfortran", "-c", "-o", "build/a.o"]
+    "source": "src/a.f90",
+    "args": ["gfortran", "-c", "-o", "build/a.o"]
   },
-  "b.f90": {
-    "source": "src/b.f90", "args": ["mpifort", "-c", "-o", "build/b.o"]
+  "lib/b.f90": {
+    "source": "src/lib/b.f90",
+    "args": ["mpifort", "-c", "-o", "build/b.o"],
+    "includes": ["/usr/include"]
   }
 }
 ```
