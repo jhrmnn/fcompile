@@ -286,11 +286,11 @@ def build(tasks: Dict[Source, Task], opts: Namespace) -> None:
     else:
         print()
     finally:
+        for tsk in workers:
+            tsk.cancel()
         with open(cachefile, 'w') as f:
             json.dump({'hashes': hashes}, f)
         if DEBUG:
-        for tsk in workers:
-            tsk.cancel()
             print_clocks()
 
 
