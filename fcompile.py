@@ -202,19 +202,18 @@ async def scheduler(tasks: Dict[Source, Task],
     n_all_lines = sum(tree.line_nums[src] for src in changed_files)
     n_lines = 0
     waiting = set(changed_files)
-    scheduled: Dict[Source, Tuple[int, Source, Args]] = {}
+    scheduled: Set[Source] = set()
     while waiting or scheduled:
-        blocking = waiting | set(scheduled)
+        blocking = waiting | scheduled
         for src in list(waiting):
             if not (blocking & tree.ancestors[src]):
                 hashes.pop(src, None)  # if compilation gets interrupted
-                task_tuple = (
+                task_queue.put_nowait((
                     -tree.priority[src],
                     src,
                     Args(tasks[src].args + (str(tasks[src].source),))
-                )
-                task_queue.put_nowait(task_tuple)
-                scheduled[src] = task_tuple
+                ))
+                scheduled.add(src)
                 waiting.remove(src)
         src, retcode, clock = await result_queue.get()
         if retcode != 0:
@@ -222,7 +221,7 @@ async def scheduler(tasks: Dict[Source, Task],
         clocks.append((src, clock, tree.line_nums[src]))
         hashes[src] = tree.hashes[src]
         n_lines += tree.line_nums[src]
-        del scheduled[src]
+        scheduled.remove(src)
         pprint(f'Compiled {src}.')
         sys.stdout.write(
             f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, '
