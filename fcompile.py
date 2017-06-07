@@ -121,7 +121,7 @@ class TaskTree(NamedTuple):
     - ancestors: Maps source files to sets of ancestors.
     """
     src_mods: Dict[Source, List[Module]]
-    mod_uses: Dict[Module, List[Source]]
+    mod_uses: DefaultDict[Module, List[Source]]
     hashes: Dict[Filename, Hash]
     line_nums: Dict[Source, int]
     priority: Dict[Source, int]
@@ -271,7 +271,7 @@ async def scheduler(tasks: Dict[Source, Task],
             modhash = get_hash(Path(modfile))
             if modhash != hashes.get(modfile):
                 hashes[modfile] = modhash
-                for src in tree.mod_uses.get(mod, []):  # modules may be unused
+                for src in tree.mod_uses[mod]:
                     assert src not in scheduled
                     hashes.pop(src, None)
                     if src not in waiting:
