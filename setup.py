@@ -9,7 +9,7 @@ setup(
     author_email='dev@hermann.in',
     url='https://github.com/azag0/fcompile',
     packages=['fcompile'],
-    scripts=['scripts/fcompile'],
+    scripts=['scripts/fcompile', 'scripts/fconfigure'],
     classifiers=[
         'Development Status :: 4 - Beta',
         'Environment :: Console',
