@@ -4,10 +4,22 @@ Fcompile is a specialized build tool written in Python 3.6 with `asyncio`, that 
 
 A high degree of parallelization is achieved by prioritizing compilation of modules with many dependants.
 
+## Installation
+
+Either
+
+```
+pip3 install git+https://github.com/azag0/fcompile
+```
+
+which installs an `fcompile` script.
+
+Or simply download [fcompile.py](https://raw.githubusercontent.com/azag0/fcompile/master/fcompile/fcompile.py) and run it directly with `python3 fcompile.py`.
+
 ## Use
 
 ```
-usage: fcompile.py [options] <CONFIG.json
+usage: fcompile [options] <CONFIG.json
 
 optional arguments:
   -h, --help            show this help message and exit

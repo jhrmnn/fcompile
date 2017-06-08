@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -359,7 +358,7 @@ def read_tasks(f: IO[str] = sys.stdin) -> Dict[Source, Task]:
 def parse_cli() -> Dict[str, Any]:
     """Handle the command-line interface."""
     cpu_count = os.cpu_count()//2 or 1  # type: ignore
-    parser = ArgumentParser(usage='fcompile.py [options] <CONFIG.json')
+    parser = ArgumentParser(usage='fcompile [options] <CONFIG.json')
     arg = parser.add_argument
     arg('-j', '--jobs', type=int, default=cpu_count, dest='njobs',
         help=f'number of parallel workers [default: {cpu_count}]')
