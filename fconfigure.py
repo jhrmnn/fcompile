@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# Any copyright is dedicated to the Public Domain.
+# http://creativecommons.org/publicdomain/zero/1.0/
 import json
 import sys
 from pathlib import Path
@@ -40,3 +43,7 @@ def parse_cli() -> Dict[str, Any]:
     arg('--cmd', required=True,
         help='compilation command (object file will be appended) [example: "gfortran -c -o"]')
     return vars(parser.parse_args())
+
+
+if __name__ == '__main__':
+    configure(**parse_cli())

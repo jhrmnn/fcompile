@@ -8,8 +8,7 @@ setup(
     author='Jan Hermann',
     author_email='dev@hermann.in',
     url='https://github.com/azag0/fcompile',
-    packages=['fcompile'],
-    scripts=['scripts/fcompile', 'scripts/fconfigure'],
+    scripts=['fcompile.py', 'fconfigure.py'],
     classifiers=[
         'Development Status :: 4 - Beta',
         'Environment :: Console',

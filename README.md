@@ -12,14 +12,14 @@ Either
 pip3 install git+https://github.com/azag0/fcompile
 ```
 
-which installs an `fcompile` script.
+which installs the `fcompile.py` script.
 
 Or simply download [fcompile.py](https://raw.githubusercontent.com/azag0/fcompile/master/fcompile/fcompile.py) and run it directly with `python3 fcompile.py`.
 
 ## Use
 
 ```
-usage: fcompile [options] <CONFIG.json
+usage: fcompile.py [options] <CONFIG.json
 
 optional arguments:
   -h, --help            show this help message and exit

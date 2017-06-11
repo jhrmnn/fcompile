@@ -1,5 +1,0 @@
-from fcompile.configure import configure, parse_cli
-
-
-if __name__ == '__main__':
-    configure(**parse_cli())

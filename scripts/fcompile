@@ -1,8 +1,0 @@
-from fcompile import read_tasks, parse_cli, build, CompilationError
-
-
-if __name__ == '__main__':
-    try:
-        build(read_tasks(), **parse_cli())
-    except (KeyboardInterrupt, CompilationError):
-        raise SystemExit(1)
