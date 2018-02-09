@@ -237,6 +237,9 @@ else:
     TaskQueue, ResultQueue = None, None
 
 
+n_running = 0
+
+
 async def scheduler(tasks: Dict[Source, Task],
                     task_queue: TaskQueue,
                     result_queue: ResultQueue,
@@ -261,10 +264,13 @@ async def scheduler(tasks: Dict[Source, Task],
                 ))
                 scheduled.add(src)
                 waiting.remove(src)
+        elapsed = time.time()-start
+        lines_done = n_lines/n_all_lines
+        eta = elapsed/(lines_done or nan)
         sys.stdout.write(
-            f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, '
+            f' Progress: {len(waiting)} waiting, {len(scheduled)} scheduled, {n_running+1} running, '
             f'{n_lines}/{n_all_lines} lines ({100*n_lines/n_all_lines:.1f}%), '
-            f'ETA: {(time.time()-start)*n_all_lines/(n_lines or nan):.1f} s\r'
+            f'Elapsed/ETA: {elapsed:.1f}/{eta:.1f} s\r'
         )
         sys.stdout.flush()
         if not blocking:
@@ -292,11 +298,14 @@ async def scheduler(tasks: Dict[Source, Task],
 
 async def worker(task_queue: TaskQueue, result_queue: ResultQueue) -> None:
     """Compile tasks from a queue."""
+    global n_running
     while True:
         _, taskname, args = await task_queue.get()
         proc = await asyncio.create_subprocess_exec(*args)
+        n_running += 1
         now = time.time()
         retcode = await proc.wait()
+        n_running -= 1
         result_queue.put_nowait((taskname, retcode, time.time()-now))
 
 
@@ -330,7 +339,7 @@ def build(tasks: Dict[Source, Task], dry: bool = False, njobs: int = 1) -> None:
     except CompilationError as e:
         print(f'error: Compilation of {e.source} returned {e.retcode}.')
         raise
-    except:
+    except Exception as e:
         print()
         raise
     else:

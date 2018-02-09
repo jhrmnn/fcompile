@@ -6,15 +6,7 @@ A high degree of parallelization is achieved by prioritizing compilation of modu
 
 ## Installation
 
-Either
-
-```
-pip3 install git+https://github.com/azag0/fcompile
-```
-
-which installs the `fcompile.py` script.
-
-Or simply download [fcompile.py](https://raw.githubusercontent.com/azag0/fcompile/master/fcompile/fcompile.py) and run it directly with `python3 fcompile.py`.
+Simply download [fcompile.py](https://raw.githubusercontent.com/azag0/fcompile/master/fcompile/fcompile.py) and run it directly with `python3 fcompile.py`.
 
 ## Use
 
